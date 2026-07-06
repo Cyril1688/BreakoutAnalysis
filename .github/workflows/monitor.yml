@@ -1,0 +1,99 @@
+name: 异动监控
+
+on:
+  schedule:
+    # 北京时间 07:00-15:00 (A股时段) + 21:00-24:00 (美股时段)
+    # UTC 换算: 07:00 CST = 23:00 UTC, 15:00 CST = 07:00 UTC
+    #           21:00 CST = 13:00 UTC, 24:00 CST = 16:00 UTC
+    # 每 30 分钟，仅工作日 (1-5)
+    - cron: '*/30 23-7,13-15 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    name: 扫描异动
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install akshare pandas requests pytz
+
+      - name: 生成配置
+        run: |
+          cat > config/config.json << 'CONFIGEOF'
+          {
+            "markets": {
+              "us": ${{ secrets.MARKET_US_ENABLED || 'true' }},
+              "china": ${{ secrets.MARKET_CHINA_ENABLED || 'true' }}
+            },
+            "screeners": {
+              "market": {"url": "https://www.tradingview.com/screener/fMf9cTi2/"},
+              "pre_market": {"url": "https://www.tradingview.com/screener/fwUi7t17/"},
+              "browser_headers": {},
+              "filters": {
+                "min_change_percent": 6, "min_volume": 1000000,
+                "max_price": 100, "min_price": 0.5,
+                "min_relative_volume": 2,
+                "large_cap_threshold": 10000000000,
+                "large_cap_min_change_percent": 6,
+                "small_cap_min_change_percent": 10,
+                "min_market_cap_non_tech": 200000000
+              }
+            },
+            "china_screeners": {
+              "filters": {
+                "china_min_change_percent": 5, "china_max_change_percent": 15,
+                "china_min_volume": 1000000, "china_min_price": 2.0,
+                "china_max_price": 500.0, "china_min_market_cap": 500000000,
+                "china_min_volume_ratio": 1.5
+              }
+            },
+            "china_news": {"back_hours": 48, "max_news_per_stock": 3},
+            "news_collector": {"back_hours": 24, "summarize_articles": false, "browser_headers": {}},
+            "email": {"send_email": false, "email_report": false},
+            "llms": {"current_model": "", "models": [], "prompt_file": "llm_prompt.md"},
+            "feishu": {"webhook_url": "${{ secrets.FEISHU_WEBHOOK_URL }}"},
+            "discord": {
+              "webhook_url": "${{ secrets.DISCORD_WEBHOOK_URL }}",
+              "webhook_url_market_report": "${{ secrets.DISCORD_REPORT_WEBHOOK_URL }}"
+            }
+          }
+          CONFIGEOF
+
+      - name: 提取延迟（避免并行重复）
+        id: dedup
+        run: |
+          HASH=$(echo "${{ github.sha }}:${{ github.run_number }}" | md5sum | cut -c1-8)
+          DELAY=$(( $(printf '%d' 0x${HASH:0:2}) % 5 + 1 ))
+          echo "delay=${DELAY}" >> $GITHUB_OUTPUT
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+
+      - name: 等待去重窗口
+        run: sleep ${{ steps.dedup.outputs.delay }}
+
+      - name: 运行监控脚本
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_REPORT_WEBHOOK_URL: ${{ secrets.DISCORD_REPORT_WEBHOOK_URL }}
+        run: |
+          python src/tradealerts.py --once 2>&1 || echo "脚本运行完成（可能有预期内错误）"
+
+      - name: 上传分析结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-results-${{ github.run_id }}
+          path: analysis/
+          retention-days: 7
