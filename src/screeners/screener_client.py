@@ -12,16 +12,21 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 if SRC_DIR not in sys.path:
     sys.path.append(SRC_DIR)
 
-# Import fetch functions from the specific screeners
+# Import fetch functions from the specific screeners (non-fatal - US can be disabled)
 try:
     from market_gainers import fetch_screener_data as fetch_market_data, load_config as load_market_config
     from premarket_gappers import fetch_screener_data as fetch_premarket_data, load_config as load_premarket_config
     # from postmarket_gainers import fetch_postmarket_gainers_data, load_config as load_postmarket_config # Removed postmarket
+    US_SCREENER_AVAILABLE = True
     logging.info("Successfully imported US screener functions.")
 except ImportError as e:
+    US_SCREENER_AVAILABLE = False
+    fetch_market_data = None
+    fetch_premarket_data = None
+    load_market_config = None
+    load_premarket_config = None
     logging.error(f"Failed to import US screener functions: {e}")
-    logging.error("Ensure market_gainers.py and premarket_gappers.py are in the same directory.")
-    sys.exit(1)
+    logging.warning("US market monitoring will be disabled.")
 
 # Import China screener (optional - gracefully degrade if not available)
 try:
@@ -304,6 +309,10 @@ def get_screener_data(config_path='config/config.json', filter_weak_stocks=True)
     raw_data = None
     screener_type = None
     config = None
+
+    if not US_SCREENER_AVAILABLE:
+        logging.warning("US screener not available. Skipping US market data.")
+        return pd.DataFrame()
 
     if is_premarket_hours(now_eastern):
         logging.info("Current time is during pre-market hours. Fetching pre-market gappers.")

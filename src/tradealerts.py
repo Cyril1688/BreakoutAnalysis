@@ -64,7 +64,7 @@ NOTIFY_JSON_PATH = "src/notifications/notify.json"
 EMAIL_NOTIFY_JSON_PATH = "src/notifications/email_notify.json"
 # NOTIFY_SCRIPT_PATH = "src/notifications/send_notification.bat" # No longer needed
 DISCORD_NOTIFIER_SCRIPT_PATH = "src/notifications/discord_notifier.py"
-EMAIL_NOTIFIER_SCRIPT_PATH = "src/email/send_email.py"
+EMAIL_NOTIFIER_SCRIPT_PATH = "src/mail_utils/send_email.py"
 DATE_FORMAT = "%Y-%m-%d"
 
 # 延迟导入 MarketBriefingClient（在 send_market_briefing 函数内导入）
@@ -650,7 +650,7 @@ def send_market_briefing():
             # Also send email notification for market briefing
             if is_email_enabled():
                 try:
-                    from src.email.send_email import send_email_notification
+                    from src.mail_utils.send_email import send_email_notification
                     # Prepare email content as a list with one dict item
                     email_content = [{
                         "title": f"Market Briefing - {now_pacific.strftime('%I:%M %p PST')}",
