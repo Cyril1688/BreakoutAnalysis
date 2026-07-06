@@ -6,8 +6,15 @@
 import json
 import logging
 import os
-import requests
 from datetime import datetime, timezone
+
+# 惰性导入 requests（避免在标准库 email.errors 不可用时阻塞导入）
+_requests = None
+def _get_requests():
+    global _requests
+    if _requests is None:
+        import requests as _requests
+    return _requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - FEISHU - %(levelname)s - %(message)s')
 
@@ -95,7 +102,7 @@ def send_feishu_card(webhook_url, title, content_lines, color='blue'):
     }
 
     try:
-        resp = requests.post(webhook_url, json=payload, timeout=15)
+        resp = _get_requests().post(webhook_url, json=payload, timeout=15)
         resp.raise_for_status()
         result = resp.json()
         if result.get('code') == 0:
@@ -104,7 +111,7 @@ def send_feishu_card(webhook_url, title, content_lines, color='blue'):
         else:
             logging.error(f"飞书 API 返回错误: {result}")
             return False
-    except requests.exceptions.RequestException as e:
+    except _get_requests().exceptions.RequestException as e:
         logging.error(f"飞书 Webhook 请求失败: {e}")
         return False
     except Exception as e:
@@ -121,7 +128,7 @@ def send_feishu_text(webhook_url, text):
         "content": {"text": text}
     }
     try:
-        resp = requests.post(webhook_url, json=payload, timeout=10)
+        resp = _get_requests().post(webhook_url, json=payload, timeout=10)
         resp.raise_for_status()
         return True
     except Exception as e:
