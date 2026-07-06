@@ -1,0 +1,144 @@
+{
+    "markets": {
+        "_comment": "Enable/disable market monitoring. Set to true to monitor, false to skip.",
+        "us": true,
+        "china": false
+    },
+    "screeners": {
+        "market": {
+            "url": "https://www.tradingview.com/screener/fMf9cTi2/"
+        },
+        "pre_market": {
+            "url": "https://www.tradingview.com/screener/fwUi7t17/"
+        },
+        "browser_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5"
+        },
+        "filters": {
+            "_comment": "Screener filter thresholds — adjust to tune which stocks get alerted on",
+            "min_change_percent": 6,
+            "min_volume": 1000000,
+            "max_price": 100,
+            "min_price": 0.5,
+            "min_relative_volume": 2,
+            "large_cap_threshold": 10000000000,
+            "large_cap_min_change_percent": 6,
+            "small_cap_min_change_percent": 10,
+            "min_market_cap_non_tech": 200000000
+        }
+    },
+    "china_screeners": {
+        "_comment": "A-share (Chinese stock market) screener configuration",
+        "filters": {
+            "_comment": "A-share filter thresholds — adjust to tune which stocks get alerted on",
+            "china_min_change_percent": 5,
+            "china_max_change_percent": 15,
+            "china_min_volume": 1000000,
+            "china_min_price": 2.0,
+            "china_max_price": 500.0,
+            "china_min_market_cap": 500000000,
+            "china_min_volume_ratio": 1.5
+        }
+    },
+    "email": {
+        "send_email": false,
+        "email_report": true,
+        "contacts_sheet_url": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit",
+        "google_sheets_api_key": "",
+        "gmail_api_key": "",
+        "credentials_path": "credentials.json",
+        "token_path": "token.json"
+    },
+    "china_news": {
+        "_comment": "China A-share news collector configuration",
+        "back_hours": 48,
+        "max_news_per_stock": 3
+    },
+    "news_collector": {
+        "back_hours": 24,
+        "summarize_articles": true,
+        "browser_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5"
+        }
+    },
+    "alpaca": {
+        "use_paper": true,
+        "api_key": "YOUR_ALPACA_API_KEY",
+        "api_secret": "YOUR_ALPACA_API_SECRET",
+        "data_feed": "iex"
+    },
+    "feishu": {
+        "_comment": "飞书机器人 Webhook 通知配置。在飞书群中添加机器人 → 复制 Webhook URL",
+        "webhook_url": "YOUR_FEISHU_WEBHOOK_URL"
+    },
+    "discord": {
+        "webhook_url": "YOUR_DISCORD_STOCK_ALERTS_WEBHOOK_URL",
+        "webhook_url_market_report": "YOUR_DISCORD_MARKET_REPORT_WEBHOOK_URL",
+        "notifications": {
+            "market_open": true,
+            "market_close": true,
+            "indicator_alerts": true,
+            "error_alerts": true
+        }
+    },
+    "llms": {
+        "current_model": "gemini-2.5-flash",
+        "models": [
+            {
+                "name": "gpt-4.1-mini",
+                "api_key": "YOUR_OPENAI_API_KEY"
+            },
+            {
+                "name": "o4-mini",
+                "api_key": "YOUR_OPENAI_API_KEY"
+            },
+            {
+                "name": "gemini-2.0",
+                "api_key": "YOUR_GEMINI_API_KEY"
+            },
+            {
+                "name": "gemini-pro-vision",
+                "api_key": "YOUR_GEMINI_API_KEY"
+            },
+            {
+                "name": "gemini-2.5-flash",
+                "api_key": "YOUR_GEMINI_API_KEY"
+            },
+            {
+                "name": "gemini-2.5-pro",
+                "api_key": "YOUR_GEMINI_API_KEY"
+            },
+            {
+                "name": "llama-3.2-vision",
+                "ollama_model_name": "llama3.2-vision"
+            },
+            {
+                "name": "deepseek-r1-distill-qwen-7b"
+            }
+        ],
+        "prompt_file": "llm_prompt.md"
+    },
+    "tradingview": {
+        "chart_id": "YOUR_TRADINGVIEW_CHART_ID",
+        "_comment_chart_id": "Your TradingView chart ID from the URL, e.g. https://www.tradingview.com/chart/XXXXXXXX/ - only needed for chart screenshots",
+        "cookies": {
+            "_comment": "Optional - only needed for chart screenshots of private/authenticated charts. Get these from your browser's developer tools after logging in to TradingView.",
+            "sessionid": "",
+            "sessionid_sign": "",
+            "device_t": ""
+        }
+    },
+    "screenshotapi": {
+        "tradingview": {
+            "browser_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5"
+            }
+        }
+    }
+}

@@ -1,0 +1,7 @@
+# BreakoutAnalysis - GitHub Actions 最小依赖
+# 用于双市场（A股+美股）异动监控
+akshare>=1.18.0
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.28.0
+pytz>=2023.3
