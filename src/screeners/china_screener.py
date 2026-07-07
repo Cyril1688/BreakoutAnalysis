@@ -185,41 +185,52 @@ def get_technical_indicators(symbol, periods=250):
 
 def fetch_china_market_data(config):
     """
-    Fetches A-share real-time data using akshare.
-    Returns raw DataFrame with East Money columns.
+    Fetches A-share real-time data.
+    Primary: akshare (East Money). Fallback: Sina + Tencent (for GitHub Actions / IP-blocked envs).
+    Returns raw DataFrame with standard Chinese column names (兼容 apply_filters + normalize_to_standard).
     """
+
+    # ── Primary: akshare (East Money) ──
+    akshare_ok = False
     try:
         import akshare as ak
-    except ImportError as e:
-        logging.error(f"akshare import FAILED for A-share data: {e}", exc_info=True)
-        return None
+        akshare_ok = True
+    except ImportError:
+        logging.warning("akshare not installed, skipping East Money primary fetch.")
 
+    if akshare_ok:
+        try:
+            logging.info("Fetching A-share real-time data from East Money (akshare)...")
+            for attempt in range(3):
+                try:
+                    df = ak.stock_zh_a_spot_em()
+                    if df is not None and not df.empty:
+                        logging.info(f"Fetched {len(df)} A-share stocks from East Money.")
+                        return df
+                except Exception as e:
+                    msg = str(e)
+                    if attempt < 2:
+                        logging.warning(f"East Money attempt {attempt+1} failed ({msg[:80]}); retrying...")
+                        time.sleep(1.5 * (attempt + 1))
+                    else:
+                        logging.warning(f"East Money failed after 3 attempts ({msg[:120]}).")
+        except Exception as e:
+            logging.warning(f"East Money primary fetch error: {e}")
+
+    # ── Fallback: Sina / Tencent ──
+    logging.info("East Money unavailable. Falling back to Sina + Tencent...")
     try:
-        logging.info("Fetching A-share real-time market data from East Money...")
-        df = None
-        for attempt in range(3):
-            try:
-                df = ak.stock_zh_a_spot_em()
-                if df is not None and not df.empty:
-                    break
-            except Exception as e:
-                if attempt < 2:
-                    logging.warning(f"A-share fetch attempt {attempt+1} failed ({e}); retrying...")
-                    time.sleep(1.5 * (attempt + 1))
-                else:
-                    logging.error(f"Error fetching A-share market data: {e}")
-                    return None
-
-        if df is None or df.empty:
-            logging.warning("No A-share data returned from East Money.")
-            return pd.DataFrame()
-
-        logging.info(f"Fetched {len(df)} A-share stocks from East Money.")
-        return df
-
+        from .sina_fetcher import fetch_fallback_data
+        df_fb = fetch_fallback_data()
+        if df_fb is not None and not df_fb.empty:
+            logging.info(f"Fetched {len(df_fb)} A-share stocks from Sina/Tencent (fallback).")
+            return df_fb
+        logging.warning("Fallback sources returned empty.")
     except Exception as e:
-        logging.error(f"Error fetching A-share market data: {e}")
-        return None
+        logging.error(f"Fallback source error: {e}", exc_info=True)
+
+    logging.warning("All A-share data sources exhausted. Returning empty DataFrame.")
+    return pd.DataFrame()
 
 
 def apply_filters(df, filters_config):
