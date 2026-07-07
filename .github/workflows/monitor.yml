@@ -53,10 +53,14 @@ jobs:
             },
             "china_screeners": {
               "filters": {
-                "china_min_change_percent": 5, "china_max_change_percent": 15,
-                "china_min_volume": 1000000, "china_min_price": 2.0,
-                "china_max_price": 500.0, "china_min_market_cap": 500000000,
-                "china_min_volume_ratio": 1.5
+                "china_min_change_percent": 5,
+                "china_max_change_percent": 15,
+                "china_min_volume": 1000000,
+                "china_min_price": 2.0,
+                "china_max_price": 500.0,
+                "china_min_market_cap": 500000000,
+                "china_min_volume_ratio": 1.5,
+                "china_min_turnover": 3000000000
               }
             },
             "china_news": {"back_hours": 48, "max_news_per_stock": 3},
