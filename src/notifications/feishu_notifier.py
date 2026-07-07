@@ -175,6 +175,42 @@ def format_stock_card(stock_data):
     if news and news != 'No recent news found.':
         lines.append(f"\n**📰 相关新闻**\n{news}")
 
+    # --- A股增强层 (板块/资金流/东财资讯, 非阻塞) ---
+    enrich = stock_data.get('enrich')
+    if market == 'china' and enrich and isinstance(enrich, dict):
+        # 资金流
+        ff = enrich.get('fund_flow') or {}
+        if ff.get('available'):
+            wan = ff.get('main_net_today_wan')
+            sig = ff.get('signal')
+            emoji = "🔴" if sig == 'bullish' else ("🟢" if sig == 'bearish' else "⚪")
+            flow_txt = f"{emoji} 主力净流入 **{wan}万**" if wan is not None else f"{emoji} 主力净流入 **N/A**"
+            if ff.get('latest_time'):
+                flow_txt += f"  (截至 {ff['latest_time']})"
+            lines.append(f"\n**💰 资金流向**\n{flow_txt}")
+
+        # 板块/概念
+        concept = enrich.get('concept') or {}
+        if concept.get('available') and concept.get('tags'):
+            try:
+                limit = int(enrich.get('concept_limit', 8))
+            except Exception:
+                limit = 8
+            tags = concept['tags'][:limit]
+            lines.append(f"\n**🏷️ 所属板块**\n{' · '.join(tags)}")
+
+        # 东财资讯
+        enews = enrich.get('news') or []
+        if enews:
+            news_lines = []
+            for n in enews[:3]:
+                t = n.get('time', '')
+                src = n.get('source', '')
+                head = f"**- {n.get('title', 'N/A')}**"
+                tail = f" ({t}{(' | ' + src) if src else ''})" if t or src else ""
+                news_lines.append(head + tail)
+            lines.append(f"\n**📰 东财资讯**\n" + "\n".join(news_lines))
+
     return title, lines, color
 
 

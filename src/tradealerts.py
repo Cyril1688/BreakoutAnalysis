@@ -384,6 +384,15 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
                 news_lines.append(f"... (and {len(stock_news_items) - news_limit} more articles)")
         stock_data['news_str'] = "\n".join(news_lines) if news_lines else "No recent news found."
 
+        # --- A股增强层 (板块/资金流/新闻, 非阻塞) ---
+        if market == 'china':
+            try:
+                from src.enrichment.astock_enrich import enrich_stock
+                stock_data['enrich'] = enrich_stock(ticker, row.get('CompanyName', ''))
+            except Exception as e:
+                logging.warning(f"A股增强层调用失败 {ticker}: {e}")
+                stock_data['enrich'] = None
+
         # --- LLM Analysis ---
         parsed_analysis = "LLM analysis skipped (client not available)." # Default message
         if llm_client: # Only proceed if client is available and initialized properly

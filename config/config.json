@@ -68,6 +68,13 @@
         "back_hours": 48,
         "max_news_per_stock": 3
     },
+    "enrichment": {
+        "_comment": "A股增强层 (板块/资金流/东财资讯) — 接入 a-stock-data, 仅对异动A股调用, 失败不影响主预警",
+        "enabled": true,
+        "min_interval": 1.0,
+        "news_limit": 3,
+        "concept_limit": 8
+    },
     "news_collector": {
         "back_hours": 24,
         "summarize_articles": true,
