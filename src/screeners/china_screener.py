@@ -17,6 +17,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import pytz
 import socket
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - CHINA_SCREENER - %(levelname)s - %(message)s')
