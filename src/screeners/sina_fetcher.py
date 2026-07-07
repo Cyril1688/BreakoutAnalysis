@@ -95,6 +95,13 @@ def _sina_record_to_row(rec):
         row["代码"] = raw_code.zfill(6)
     else:
         row["代码"] = raw_code
+
+    # ── 单位转换 ──
+    # 新浪的 总市值/流通市值 单位是 万元，下游 apply_filters 期望 元
+    for col in ("总市值", "流通市值"):
+        if col in row and row[col] is not None:
+            row[col] = row[col] * 10000.0
+
     return row
 
 
