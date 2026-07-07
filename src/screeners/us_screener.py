@@ -123,8 +123,8 @@ def fetch_us_market_data(config):
     """
     try:
         import akshare as ak
-    except ImportError:
-        logging.error("akshare is required for US data. Install with: pip install akshare")
+    except ImportError as e:
+        logging.error(f"akshare import FAILED for US data: {e}", exc_info=True)
         return pd.DataFrame()
 
     try:

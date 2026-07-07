@@ -177,8 +177,8 @@ def fetch_china_market_data(config):
     """
     try:
         import akshare as ak
-    except ImportError:
-        logging.error("akshare is required for A-share data. Install with: pip install akshare")
+    except ImportError as e:
+        logging.error(f"akshare import FAILED for A-share data: {e}", exc_info=True)
         return None
 
     try:
