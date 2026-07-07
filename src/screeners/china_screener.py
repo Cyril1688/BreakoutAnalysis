@@ -393,9 +393,6 @@ def is_china_market_hours():
     afternoon_start = datetime.strptime("13:00", "%H:%M").time()
     afternoon_end = datetime.strptime("15:00", "%H:%M").time()
 
-    # TEMP_VERIFY: force-open to exercise the A-share pipeline during off-hours (revert after)
-    return True
-
     if morning_start <= current_time < morning_end:
         return True
     elif afternoon_start <= current_time < afternoon_end:

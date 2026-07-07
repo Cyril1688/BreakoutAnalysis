@@ -1092,13 +1092,6 @@ def main():
     """Main execution function — supports dual-market (US + China)."""
     logging.info("--- Starting Trade Alerts Script (Dual-Market) ---")
 
-    # DIAGNOSTIC: probe akshare importability in this environment (runs every cycle)
-    try:
-        import akshare as _ak
-        logging.info(f"[DIAG] akshare import OK ({_ak.__version__})")
-    except Exception as _e:
-        logging.error(f"[DIAG] akshare import FAILED: {_e}", exc_info=True)
-
     # Get today's directory for state files
     pacific_tz = pytz.timezone('America/Los_Angeles')
     now_pacific = datetime.now(pacific_tz)
