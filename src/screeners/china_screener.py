@@ -16,9 +16,21 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import pytz
+import socket
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - CHINA_SCREENER - %(levelname)s - %(message)s')
+
+# ── 强制 IPv4 (避免 GitHub runner / 沙箱 IPv6 路由不可达导致 East Money 连接 reset) ──
+_orig_getaddrinfo = socket.getaddrinfo
+def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = _getaddrinfo_ipv4
+try:
+    import urllib3.util.connection as _uc
+    _uc.allowed_gai_family = lambda: socket.AF_INET
+except Exception:
+    pass
 
 # China timezone
 CHINA_TZ = pytz.timezone('Asia/Shanghai')
@@ -183,7 +195,19 @@ def fetch_china_market_data(config):
 
     try:
         logging.info("Fetching A-share real-time market data from East Money...")
-        df = ak.stock_zh_a_spot_em()
+        df = None
+        for attempt in range(3):
+            try:
+                df = ak.stock_zh_a_spot_em()
+                if df is not None and not df.empty:
+                    break
+            except Exception as e:
+                if attempt < 2:
+                    logging.warning(f"A-share fetch attempt {attempt+1} failed ({e}); retrying...")
+                    time.sleep(1.5 * (attempt + 1))
+                else:
+                    logging.error(f"Error fetching A-share market data: {e}")
+                    return None
 
         if df is None or df.empty:
             logging.warning("No A-share data returned from East Money.")
