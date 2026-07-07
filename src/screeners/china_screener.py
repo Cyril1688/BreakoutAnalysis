@@ -220,12 +220,27 @@ def fetch_china_market_data(config):
     # ── Fallback: Sina / Tencent ──
     logging.info("East Money unavailable. Falling back to Sina + Tencent...")
     try:
-        from .sina_fetcher import fetch_fallback_data
+        # 用绝对导入而非相对导入（CI 环境下 `.sina_fetcher` 相对导入失败）
+        from src.screeners.sina_fetcher import fetch_fallback_data
         df_fb = fetch_fallback_data()
         if df_fb is not None and not df_fb.empty:
             logging.info(f"Fetched {len(df_fb)} A-share stocks from Sina/Tencent (fallback).")
             return df_fb
         logging.warning("Fallback sources returned empty.")
+    except ImportError:
+        # 兜底：如果绝对导入也失败（例如作为独立脚本运行时），动态加路径
+        try:
+            import sys
+            _fb_dir = os.path.dirname(os.path.abspath(__file__))
+            if _fb_dir not in sys.path:
+                sys.path.insert(0, _fb_dir)
+            from sina_fetcher import fetch_fallback_data
+            df_fb = fetch_fallback_data()
+            if df_fb is not None and not df_fb.empty:
+                logging.info(f"Fetched {len(df_fb)} A-share stocks from Sina/Tencent (fallback).")
+                return df_fb
+        except Exception as e2:
+            logging.error(f"Fallback import (sys.path) also failed: {e2}", exc_info=True)
     except Exception as e:
         logging.error(f"Fallback source error: {e}", exc_info=True)
 
