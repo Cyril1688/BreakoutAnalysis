@@ -939,7 +939,7 @@ def send_email_stock_alerts():
                 config = json.load(f)
         
         # Import email function
-        from src.email.send_email import send_email_notification
+        from src.mail_utils.send_email import send_email_notification
         
         # Send email with stock cards
         send_email_notification(config, stocks_to_email)
