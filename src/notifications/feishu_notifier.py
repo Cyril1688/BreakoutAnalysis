@@ -184,7 +184,13 @@ def format_stock_card(stock_data):
             wan = ff.get('main_net_today_wan')
             sig = ff.get('signal')
             emoji = "🔴" if sig == 'bullish' else ("🟢" if sig == 'bearish' else "⚪")
-            flow_txt = f"{emoji} 主力净流入 **{wan}万**" if wan is not None else f"{emoji} 主力净流入 **N/A**"
+            if sig == 'bullish':
+                label = "主力净流入"
+            elif sig == 'bearish':
+                label = "主力净流出"
+            else:
+                label = "主力净额"
+            flow_txt = f"{emoji} {label} **{wan}万**" if wan is not None else f"{emoji} {label} **N/A**"
             if ff.get('latest_time'):
                 flow_txt += f"  (截至 {ff['latest_time']})"
             lines.append(f"\n**💰 资金流向**\n{flow_txt}")
@@ -211,7 +217,61 @@ def format_stock_card(stock_data):
                 news_lines.append(head + tail)
             lines.append(f"\n**📰 东财资讯**\n" + "\n".join(news_lines))
 
+        # 打板池 (涨停股池成员)
+        ztp = enrich.get('zt_pool') or {}
+        if ztp.get('in_pool'):
+            bc = ztp.get('board_count') or '?'
+            ztstat = ztp.get('zt_stat') or '-'
+            seal = ztp.get('seal_cap_yi')
+            seal_txt = f"{seal}亿" if seal is not None else "N/A"
+            fs = _fmt_hhmm(ztp.get('first_seal'))
+            ot = ztp.get('open_times')
+            ind = ztp.get('industry') or ''
+            lines.append(f"\n**📈 打板池**\n{bc}板 · 涨停统计 {ztstat} · 封板资金 {seal_txt} · 首封 {fs} · 炸板 {ot}次 · {ind}")
+
+        # 龙虎榜
+        lhb = enrich.get('lhb') or {}
+        if lhb.get('on_board'):
+            net = lhb.get('net_yi')
+            if net is None:
+                net_txt = "N/A"
+                emo = "⚪"
+            else:
+                emo = "🔴" if net > 0 else ("🟢" if net < 0 else "⚪")
+                net_txt = f"{net}亿"
+            reason = lhb.get('reason') or '—'
+            explain = lhb.get('explain') or ''
+            buy = lhb.get('buy_yi'); sell = lhb.get('sell_yi')
+            extra = ""
+            if buy is not None or sell is not None:
+                extra = f" · 买{buy}/卖{sell}亿" if buy is not None and sell is not None else ""
+            head = f"{reason}" + (f" · {explain}" if explain and explain != reason else "")
+            lines.append(f"\n**🐉 龙虎榜**\n{head} · 净买额 {emo} {net_txt}{extra}")
+
+        # 北向资金 (全市场, 每次运行仅抓一次)
+        nb = enrich.get('northbound') or {}
+        if nb.get('available') and nb.get('total_net_yi') is not None:
+            tot = nb.get('total_net_yi') or 0
+            sh = nb.get('sh_net_yi'); sz = nb.get('sz_net_yi')
+            emo = "🔴" if tot > 0 else ("🟢" if tot < 0 else "⚪")
+            brk = ""
+            if sh is not None or sz is not None:
+                brk = f" (沪 {sh}/深 {sz})"
+            note = " · 盘中待回填" if tot == 0 else ""
+            lines.append(f"\n**🌏 北向资金**\n净买额 {emo} {tot}亿{brk}{note}")
+
     return title, lines, color
+
+
+def _fmt_hhmm(v):
+    """把 '092500' / '09:25:00' 这类时间格式化为 '09:25'。"""
+    if not v:
+        return "N/A"
+    s = str(v).strip()
+    s = s.replace(":", "")
+    if len(s) >= 4:
+        return s[:2] + ":" + s[2:4]
+    return s or "N/A"
 
 
 def send_stock_notification(webhook_url, stock_data):

@@ -69,11 +69,14 @@
         "max_news_per_stock": 3
     },
     "enrichment": {
-        "_comment": "A股增强层 (板块/资金流/东财资讯) — 接入 a-stock-data, 仅对异动A股调用, 失败不影响主预警",
+        "_comment": "A股增强层 — 第一批(板块/资金流/东财资讯)+ 第二批(龙虎榜/打板池/北向资金); 仅对异动A股调用, 失败不影响主预警",
         "enabled": true,
         "min_interval": 1.0,
         "news_limit": 3,
-        "concept_limit": 8
+        "concept_limit": 8,
+        "lhb": {"enabled": true, "_comment": "龙虎榜: akshare stock_lhb_detail_em, 盘后公布, 盘中回退最近交易日"},
+        "zt_pool": {"enabled": true, "_comment": "打板池(涨停股池): akshare stock_zt_pool_em"},
+        "northbound": {"enabled": true, "_comment": "北向资金: akshare stock_hsgt_fund_flow_summary_em; 盘中多为0(港交所2024-08起停盘中披露), 收盘回填"}
     },
     "news_collector": {
         "back_hours": 24,
