@@ -32,17 +32,23 @@ class GPTUnified(BaseModel):
 
         if not self.api_key:
             # Fallback to environment variable if not in config
-            self.api_key = os.getenv("OPENAI_API_KEY")
+            self.api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
 
         if not self.api_key:
-            logging.error("OpenAI API key not found in config or OPENAI_API_KEY environment variable.")
+            logging.error("LLM API key not found in config or DEEPSEEK_API_KEY/OPENAI_API_KEY env.")
         else:
             try:
-                # Pass the API key explicitly
-                self.client = OpenAI(api_key=self.api_key)
+                # Support custom base_url for OpenAI-compatible APIs (AGNES, DeepSeek, etc.)
+                base_url = config.get("base_url") or os.getenv("LLM_BASE_URL") or None
+                client_kwargs = {"api_key": self.api_key}
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+
+                self.client = OpenAI(**client_kwargs)
                 # Verify connection (optional, but good practice)
                 self.client.models.list()
-                logging.info(f"Initialized GPTUnified client for model '{self.model_name}'")
+                logging.info(f"Initialized GPTUnified client for model '{self.model_name}'"
+                             f"{' @ ' + base_url if base_url else ''}")
             except Exception as e:
                 logging.error(f"Failed to initialize OpenAI client for GPTUnified: {e}.", exc_info=True)
                 self.client = None

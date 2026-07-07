@@ -19,7 +19,7 @@ def _lazy_import_model(model_name: str):
         elif model_name in ("llama-3.2-vision",):
             from .models.llama3_2_vision import Llama3_2VisionModel
             return Llama3_2VisionModel
-        elif model_name in ("gpt-4o", "gpt-4o-mini", "gpt-4.1-mini", "o4-mini"):
+        elif model_name in ("gpt-4o", "gpt-4o-mini", "gpt-4.1-mini", "o4-mini", "AGNES_2_FLASH"):
             from .models.gpt_unified import GPTUnified
             return GPTUnified
         elif model_name in ("gemini-2.0", "gemini-pro-vision", "gemini-2.5-flash", "gemini-2.5-pro"):
@@ -42,6 +42,7 @@ _MODEL_NAMES = [
     "llama-3.2-vision",
     "gpt-4o", "gpt-4o-mini", "gpt-4.1-mini", "o4-mini",
     "gemini-2.0", "gemini-pro-vision", "gemini-2.5-flash", "gemini-2.5-pro",
+    "AGNES_2_FLASH",
 ]
 for _name in _MODEL_NAMES:
     _cls = _lazy_import_model(_name)
