@@ -62,7 +62,13 @@ jobs:
             "china_news": {"back_hours": 48, "max_news_per_stock": 3},
             "news_collector": {"back_hours": 24, "summarize_articles": false, "browser_headers": {}},
             "email": {"send_email": false, "email_report": false},
-            "llms": {"current_model": "", "models": [], "prompt_file": "llm_prompt.md"},
+            "llms": {
+              "current_model": "AGNES_2_FLASH",
+              "models": [
+                {"name": "AGNES_2_FLASH", "api_key": "${{ secrets.DEEPSEEK_API_KEY }}", "base_url": "${{ secrets.LLM_BASE_URL }}"}
+              ],
+              "prompt_file": "llm_prompt.md"
+            },
             "feishu": {"webhook_url": "${{ secrets.FEISHU_WEBHOOK_URL }}"},
             "discord": {
               "webhook_url": "${{ secrets.DISCORD_WEBHOOK_URL }}",
@@ -87,6 +93,8 @@ jobs:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_REPORT_WEBHOOK_URL: ${{ secrets.DISCORD_REPORT_WEBHOOK_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
         run: |
           python src/tradealerts.py --once 2>&1 || echo "脚本运行完成（可能有预期内错误）"
 
