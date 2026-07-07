@@ -13,20 +13,32 @@ if SRC_DIR not in sys.path:
     sys.path.append(SRC_DIR)
 
 # Import fetch functions from the specific screeners (non-fatal - US can be disabled)
+# Primary: akshare-based us_screener (no API keys required)
+US_SCREENER_MODE = None
 try:
-    from market_gainers import fetch_screener_data as fetch_market_data, load_config as load_market_config
-    from premarket_gappers import fetch_screener_data as fetch_premarket_data, load_config as load_premarket_config
-    # from postmarket_gainers import fetch_postmarket_gainers_data, load_config as load_postmarket_config # Removed postmarket
+    from us_screener import get_us_screener_data, is_us_market_hours
     US_SCREENER_AVAILABLE = True
-    logging.info("Successfully imported US screener functions.")
+    US_SCREENER_MODE = 'akshare'
+    logging.info("Successfully imported US screener (akshare-based, no API keys).")
 except ImportError as e:
-    US_SCREENER_AVAILABLE = False
-    fetch_market_data = None
-    fetch_premarket_data = None
-    load_market_config = None
-    load_premarket_config = None
-    logging.error(f"Failed to import US screener functions: {e}")
-    logging.warning("US market monitoring will be disabled.")
+    # Fallback: legacy TradingView-based screeners (require TV cookies/account)
+    try:
+        from market_gainers import fetch_screener_data as fetch_market_data, load_config as load_market_config
+        from premarket_gappers import fetch_screener_data as fetch_premarket_data, load_config as load_premarket_config
+        # from postmarket_gainers import fetch_postmarket_gainers_data, load_config as load_postmarket_config # Removed postmarket
+        US_SCREENER_AVAILABLE = True
+        US_SCREENER_MODE = 'tradingview'
+        logging.info("Successfully imported legacy US screener (TradingView-based).")
+    except ImportError as e2:
+        US_SCREENER_AVAILABLE = False
+        fetch_market_data = None
+        fetch_premarket_data = None
+        load_market_config = None
+        load_premarket_config = None
+        get_us_screener_data = None
+        is_us_market_hours = None
+        logging.error(f"Failed to import US screener functions: {e2}")
+        logging.warning("US market monitoring will be disabled.")
 
 # Import China screener (optional - gracefully degrade if not available)
 try:
@@ -263,13 +275,29 @@ def get_all_screener_data(config_path='config/config.json', filter_weak_stocks=T
 
     # --- US Market ---
     if markets.get('us', True):
-        logging.info("=== Fetching US market screener data ===")
-        try:
-            us_data = get_screener_data(config_path=config_path, filter_weak_stocks=filter_weak_stocks)
-            result['us'] = us_data if us_data is not None else pd.DataFrame()
-            logging.info(f"US screener returned {len(result['us'])} stocks.")
-        except Exception as e:
-            logging.error(f"Error fetching US screener data: {e}")
+        if not US_SCREENER_AVAILABLE:
+            logging.info("US screener not available. Skipping US market.")
+        elif US_SCREENER_MODE == 'akshare':
+            logging.info("=== Fetching US market screener data (akshare) ===")
+            try:
+                if is_us_market_hours():
+                    us_data = get_us_screener_data(config_path=config_path, filter_weak_stocks=filter_weak_stocks)
+                    result['us'] = us_data if us_data is not None else pd.DataFrame()
+                    logging.info(f"US screener returned {len(result['us'])} stocks.")
+                else:
+                    logging.info("US market is closed (outside 09:30-16:00 ET). Skipping US screener.")
+            except Exception as e:
+                logging.error(f"Error fetching US screener data: {e}")
+                result['us'] = pd.DataFrame()
+        else:
+            # Legacy TradingView-based path
+            logging.info("=== Fetching US market screener data (TradingView legacy) ===")
+            try:
+                us_data = get_screener_data(config_path=config_path, filter_weak_stocks=filter_weak_stocks)
+                result['us'] = us_data if us_data is not None else pd.DataFrame()
+                logging.info(f"US screener returned {len(result['us'])} stocks.")
+            except Exception as e:
+                logging.error(f"Error fetching US screener data: {e}")
     else:
         logging.info("US market monitoring is disabled in config.")
 

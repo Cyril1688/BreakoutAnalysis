@@ -552,7 +552,12 @@ def is_any_market_open():
 
     # Check US market
     if markets.get('us', True):
-        status['us'] = is_market_hours()
+        try:
+            from src.screeners.us_screener import is_us_market_hours
+            status['us'] = is_us_market_hours()
+        except ImportError:
+            # Fallback to the Pacific-based heuristic if us_screener is unavailable
+            status['us'] = is_market_hours()
     else:
         status['us'] = False
 
