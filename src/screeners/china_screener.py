@@ -185,64 +185,37 @@ def get_technical_indicators(symbol, periods=250):
 
 def fetch_china_market_data(config):
     """
-    Fetches A-share real-time data.
-    Primary: akshare (East Money). Fallback: Sina + Tencent (for GitHub Actions / IP-blocked envs).
+    Fetches A-share real-time data from Sina Finance (with Tencent as fallback).
+    (East Money / akshare removed — blocked on GitHub Actions runner IPs.)
     Returns raw DataFrame with standard Chinese column names (兼容 apply_filters + normalize_to_standard).
     """
-
-    # ── Primary: akshare (East Money) ──
-    akshare_ok = False
     try:
-        import akshare as ak
-        akshare_ok = True
-    except ImportError:
-        logging.warning("akshare not installed, skipping East Money primary fetch.")
-
-    if akshare_ok:
-        try:
-            logging.info("Fetching A-share real-time data from East Money (akshare)...")
-            for attempt in range(3):
-                try:
-                    df = ak.stock_zh_a_spot_em()
-                    if df is not None and not df.empty:
-                        logging.info(f"Fetched {len(df)} A-share stocks from East Money.")
-                        return df
-                except Exception as e:
-                    msg = str(e)
-                    if attempt < 2:
-                        logging.warning(f"East Money attempt {attempt+1} failed ({msg[:80]}); retrying...")
-                        time.sleep(1.5 * (attempt + 1))
-                    else:
-                        logging.warning(f"East Money failed after 3 attempts ({msg[:120]}).")
-        except Exception as e:
-            logging.warning(f"East Money primary fetch error: {e}")
-
-    # ── Fallback: Sina / Tencent ──
-    logging.info("East Money unavailable. Falling back to Sina + Tencent...")
-    try:
-        # 用绝对导入而非相对导入（CI 环境下 `.sina_fetcher` 相对导入失败）
         from src.screeners.sina_fetcher import fetch_fallback_data
-        df_fb = fetch_fallback_data()
-        if df_fb is not None and not df_fb.empty:
-            logging.info(f"Fetched {len(df_fb)} A-share stocks from Sina/Tencent (fallback).")
-            return df_fb
-        logging.warning("Fallback sources returned empty.")
+        logging.info("Fetching A-share real-time data from Sina + Tencent...")
+        df = fetch_fallback_data()
+        if df is not None and not df.empty:
+            logging.info(f"Fetched {len(df)} A-share stocks from Sina/Tencent.")
+            return df
+        logging.warning("Sina/Tencent returned empty data.")
     except ImportError:
-        # 兜底：如果绝对导入也失败（例如作为独立脚本运行时），动态加路径
         try:
             import sys
             _fb_dir = os.path.dirname(os.path.abspath(__file__))
             if _fb_dir not in sys.path:
                 sys.path.insert(0, _fb_dir)
             from sina_fetcher import fetch_fallback_data
-            df_fb = fetch_fallback_data()
-            if df_fb is not None and not df_fb.empty:
-                logging.info(f"Fetched {len(df_fb)} A-share stocks from Sina/Tencent (fallback).")
-                return df_fb
-        except Exception as e2:
-            logging.error(f"Fallback import (sys.path) also failed: {e2}", exc_info=True)
+            logging.info("Fetching A-share real-time data from Sina + Tencent...")
+            df = fetch_fallback_data()
+            if df is not None and not df.empty:
+                logging.info(f"Fetched {len(df)} A-share stocks from Sina/Tencent.")
+                return df
+        except Exception as e:
+            logging.error(f"Sina import fallback also failed: {e}", exc_info=True)
     except Exception as e:
-        logging.error(f"Fallback source error: {e}", exc_info=True)
+        logging.error(f"Sina/Tencent fetch failed: {e}", exc_info=True)
+
+    logging.warning("All A-share data sources exhausted. Returning empty DataFrame.")
+    return pd.DataFrame()
 
     logging.warning("All A-share data sources exhausted. Returning empty DataFrame.")
     return pd.DataFrame()
