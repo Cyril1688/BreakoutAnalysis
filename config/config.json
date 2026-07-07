@@ -39,7 +39,8 @@
             "china_min_price": 2.0,
             "china_max_price": 500.0,
             "china_min_market_cap": 500000000,
-            "china_min_volume_ratio": 1.5
+            "china_min_volume_ratio": 1.5,
+            "china_min_turnover": 3000000000
         }
     },
     "us_screeners": {

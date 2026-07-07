@@ -237,6 +237,7 @@ def apply_filters(df, filters_config):
     min_market_cap = fc.get('china_min_market_cap', 500000000)  # 5亿
     min_volume_ratio = fc.get('china_min_volume_ratio', 1.5)
     max_change = fc.get('china_max_change_percent', 15)  # Exclude stocks that hit limit up
+    min_turnover = fc.get('china_min_turnover', 0)  # 成交额门槛 (默认0=不限, 单位元)
 
     df_filtered = df.copy()
 
@@ -266,6 +267,11 @@ def apply_filters(df, filters_config):
     if '总市值' in df_filtered.columns:
         df_filtered['总市值'] = pd.to_numeric(df_filtered['总市值'], errors='coerce')
         df_filtered = df_filtered[df_filtered['总市值'] >= min_market_cap]
+
+    # Turnover filter (成交额)
+    if min_turnover > 0 and '成交额' in df_filtered.columns:
+        df_filtered['成交额'] = pd.to_numeric(df_filtered['成交额'], errors='coerce')
+        df_filtered = df_filtered[df_filtered['成交额'] >= min_turnover]
 
     # Volume ratio filter (量比)
     if '量比' in df_filtered.columns:
