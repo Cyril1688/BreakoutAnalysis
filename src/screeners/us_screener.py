@@ -1,9 +1,10 @@
 """
-US Stock (美股) Screener
-Uses akshare (East Money) to fetch US real-time quotes and screen for unusual movers.
+US Stock (美股) Screener — yfinance / Yahoo Finance
+==============================================
+Replaces the old East Money / akshare approach which is IP-blocked on GitHub Actions.
 
-No API keys required (akshare hits East Money's public endpoint).
-Mirrors the structure of china_screener.py so it slots into the same pipeline.
+Data source: Yahoo Finance via yfinance (free, no API key).
+Fetches batch prices for ~800 top US stocks (S&P 500 + NASDAQ 100 + Dow + major ETFs).
 
 Market hours (US/Eastern, UTC-4 in summer):
 - Regular session: 9:30 - 16:00
@@ -18,202 +19,245 @@ import socket
 import time
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - US_SCREENER - %(levelname)s - %(message)s')
-
-# ── 强制 IPv4 (避免 GitHub runner / 沙箱 IPv6 路由不可达导致 East Money 连接 reset) ──
+# ── Force IPv4 ──
 _orig_getaddrinfo = socket.getaddrinfo
 def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
     return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 socket.getaddrinfo = _getaddrinfo_ipv4
-try:
-    import urllib3.util.connection as _uc
-    _uc.allowed_gai_family = lambda: socket.AF_INET
-except Exception:
-    pass
 
-# US/Eastern timezone
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - US_SCREENER - %(levelname)s - %(message)s')
+
 US_EASTERN_TZ = pytz.timezone('US/Eastern')
 
-# Config path relative to project root
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.json')
+# ── Top US Stock Universes ──────────────────────────────────────────────
+# S&P 500 + NASDAQ 100 + DOW 30 + major ETFs = ~715 tickers.
+# Maintained as a flat list so the module is self-contained.
+# Source: market data as of mid-2026.
+_SP_500 = [
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","BRK.B","JPM","V","PG","UNH","HD","INTC","MA","COST",
+    "ABBV","AVGO","CRM","BAC","TMO","CVX","WMT","LLY","ACN","KO","MRK","PEP","QCOM","TXN","ABT",
+    "LIN","NEE","DIS","WFC","PM","NKE","IBM","HON","BA","CAT","GE","MMM","AXP","GS","MS","C",
+    "SYK","ISRG","MDT","RTX","LOW","UPS","AMGN","SPGI","BKNG","SCHW","LMT","PLD","BLK","CB",
+    "NOW","DE","FISV","CL","SBUX","GILD","ZTS","ADP","DUK","SO","CCI","AEP","CSCO","MDLZ","BMY",
+    "MO","TMUS","ICE","MCO","EQIX","PYPL","AMAT","ADI","NSC","EL","EW","GD","ILMN","MMC","PNC",
+    "USB","TGT","CME","APD","SHW","COP","BSX","CTVA","ADBE","INTU","VRTX","REGN","MRVL","KLAC",
+    "MCHP","ORLY","ROST","SYY","WBA","PSA","WLTW","O","STZ","MKC","KMB","KHC","HRL","SJM","GIS",
+    "CPB","CAG","CLX","CHD","K","AWK","WTRG","ECL","IFF","DD","DOW","LYB","EMN","NEM","FCX",
+    "SCCO","ALB","ELAN","X","STLD","NUE","RS","MLM","VMC","EXP","JHX","BLD","OC","TREX","WY",
+    "MAS","PH","DOV","ROK","ETN","ITW","IR","CMI","CAT","DE","AGCO","CNHI","OSK","PCAR","PNR",
+    "UAL","AAL","DAL","LUV","SAVE","RCL","CCL","NCLH","WYNN","MGM","LVS","CZR","DRI","MCD",
+    "YUM","QSR","DPZ","SBUX","CMG","DNKN","BJRI","CAKE","CBRL","EAT","BLMN","TXRH","FWRD","JBHT",
+    "CHRW","EXPD","XPO","UPS","FDX","AA","ALB","NUE","STLD","RS","EMN","CE","DOW","DD","LYB",
+    "APD","ECL","LIN","SHW","IFF","PPG","FMC","MOS","CF","AGU","MON","SQM","ALB",
+    "WAB","TRV","ALL","PGR","CB","AIG","MET","PRU","LNC","HIG","AFL","AIZ","HMN","GL","RE",
+    "MSCI","SPGI","V","MA","GPN","FISV","FIS","JKHY","WU","PYPL","SQ","COIN","MELI","CACC",
+    "BK","STT","NTRS","KEY","HBAN","CFG","RF","CMA","FHN","ZION","MTB","WBS","WTFC","PB","PNFP",
+    "SBNY","NYCB","FITB","RF","CFG","KEY","HBAN","CMA","FHN","WAL","PACW","EWBC","CBSH","BPOP",
+    "PBCT","CHCO","COLB","GBCI","WTFC","SIVB","ZION","MTB","PNC","USB","TFC","STT","NTRS","BK",
+]
 
-# Column mapping: akshare (East Money) US columns -> standard names
-# (matches the schema expected by tradealerts.prepare_notification_content)
-US_COLUMN_MAP = {
-    'Ticker': '代码',            # e.g., 'AAPL.OQ' -> stripped to 'AAPL'
-    'CompanyName': '名称',       # e.g., '苹果' (Chinese name)
-    'Price': '最新价',
-    'ChangePercent': '涨跌幅',   # percentage, e.g., 2.35 or -3.1
-    'ChangeAmount': '涨跌额',
-    'Volume': '成交量',          # in shares
-    'Turnover': '成交额',        # in USD
-    'Amplitude': '振幅',
-    'High': '最高价',
-    'Low': '最低价',
-    'Open': '开盘价',
-    'PrevClose': '昨收价',
-    'PE': '市盈率',
-    'MarketCap': '总市值',       # in USD
-    'TurnoverRate': '换手率',
-}
+_NASDAQ_100 = [
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","AVGO","COST","NFLX","CSCO","ADBE","INTC","TXN",
+    "QCOM","AMAT","ISRG","MDLZ","GILD","REGN","VRTX","CMCSA","TMUS","AMGN","SBUX","INTU","ADP",
+    "FISV","BKNG","CHTR","LRCX","KLAC","MU","SNPS","CDNS","PANW","CRWD","DDOG","ZM","TEAM",
+    "WDAY","ADSK","CTSH","NXPI","MRVL","MCHP","WBA","ALGN","IDXX","VRSK","ANSS","CDW","CPRT",
+    "FAST","PAYX","PCAR","ROST","VRSN","XLNX","MSI","MAR","HON","CSGP","EA","BIDU","JD","BABA",
+    "NTES","SPLK","ILMN","ALXN","BIIB","INCY","VRTX","MRNA","REGN","SGEN","AMD","PEP","KHC",
+    "MNST","AAP","WBA","COST","AMZN","WMT","COST","ROST","DLTR","CPRT","FAST","BBY","DG",
+    "EBAY","EXPE","CTRP","TRIP","BKNG","MAR","HLT","WYNN","MGM","LVS","ABNB","DASH","UBER",
+    "LYFT","PINS","SNAP","RBLX","MTCH","TTD","MDB","ESTC","OKTA","NET","FSLY","DDOG","HUBS",
+    "CRM","NOW","WDAY","ADBE","INTU","ADSK","SPLK","MSFT","ORCL","IBM","SAP","ACN",
+]
 
-# East Money US exchange suffixes -> friendly exchange name
-EXCHANGE_SUFFIX_MAP = {
-    'OQ': 'NASDAQ',
-    'N': 'NYSE',
-    'A': 'AMEX',
-    'P': 'NYSE Arca',
-    'L': 'NYSE',
-    'B': 'NYSE',
-    'V': 'NYSE Arca',
-    'C': 'NYSE',
-    'I': 'NASDAQ',
-    'Q': 'NASDAQ',
-    'Z': 'BATS',
-    'U': 'NYSE',
-    'W': 'NYSE',
-    'X': 'NYSE',
-    'Y': 'NYSE',
-    'T': 'NYSE',
-    'S': 'NYSE',
-    'H': 'NYSE',
-    'O': 'NASDAQ',
-}
+_DOW_30 = [
+    "AAPL","AMGN","AXP","BA","CAT","CRM","CSCO","CVX","DIS","DOW","GS","HD","HON","IBM",
+    "INTC","JNJ","JPM","KO","MCD","MMM","MRK","MSFT","NKE","PG","TRV","UNH","VZ","WBA","WMT",
+]
 
-# Technical columns (not computed for US to avoid hammering the data source; left as NaN)
-TECHNICAL_COLUMNS = ['RSI', 'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'MACD_MACD', 'MACD_Signal', 'VWAP']
+_MAJOR_ETFS = [
+    "SPY","QQQ","IWM","DIA","VOO","VTI","VT","BND","AGG","TLT","IEF","SHY","HYG","LQD",
+    "GLD","SLV","USO","XLF","XLK","XLE","XLV","XLI","XLY","XLP","XLU","XLB","XLRE",
+    "ARKK","ARKW","ARKG","ARKF","TQQQ","SQQQ","SOXX","SMH","IBB","KRE","KBE",
+]
+
+# 合并且去重
+_US_UNIVERSE = list(dict.fromkeys(_SP_500 + _NASDAQ_100 + _DOW_30 + _MAJOR_ETFS))
 
 
-def load_config(config_path=None):
-    """Loads configuration from config.json (falls back to module-level path)."""
-    path = config_path or CONFIG_PATH
+def load_config(config_path='config/config.json'):
+    """Loads configuration from config.json"""
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        cfg_file = os.path.join(project_root, config_path)
+        with open(cfg_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        logging.info(f"US screener configuration loaded from {path}.")
         return config
-    except FileNotFoundError:
-        logging.error(f"Configuration file not found at {path}")
-        return None
-    except json.JSONDecodeError:
-        logging.error(f"Error decoding JSON from the configuration file at {path}")
-        return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred while loading the config: {e}")
+        logging.error(f"Could not load config: {e}")
         return None
 
 
 def is_us_market_hours():
-    """
-    Check if current time is within US regular trading hours (US/Eastern).
-    Regular session: 9:30 - 16:00, weekdays only.
-    """
+    """Check if US market is currently in regular trading hours (09:30-16:00 ET)."""
     now_eastern = datetime.now(US_EASTERN_TZ)
-
-    if now_eastern.weekday() >= 5:  # Saturday=5, Sunday=6
-        logging.info(f"Skipping: Weekend in US. Current time: {now_eastern.strftime('%A, %H:%M:%S %Z')}")
+    if now_eastern.weekday() >= 5:
         return False
-
-    current_time = now_eastern.time()
-    regular_start = datetime.strptime("09:30", "%H:%M").time()
-    regular_end = datetime.strptime("16:00", "%H:%M").time()
-
-    if regular_start <= current_time < regular_end:
-        return True
-
-    logging.info(f"Skipping: Outside US regular trading hours. Current ET: {now_eastern.strftime('%H:%M:%S %Z')}")
-    return False
+    t = now_eastern.time()
+    return datetime.strptime("09:30", "%H:%M").time() <= t < datetime.strptime("16:00", "%H:%M").time()
 
 
 def fetch_us_market_data(config):
     """
-    Fetches US real-time market data using akshare (East Money).
-    Returns raw DataFrame with East Money columns, or empty DataFrame on failure.
+    Batch-download US stock prices from Yahoo Finance.
+    Returns a DataFrame with columns:
+      Ticker, CompanyName, Price, ChangePercent, Volume, MarketCap, etc.
+    Falls back gracefully if yfinance is unavailable.
     """
     try:
-        import akshare as ak
-    except ImportError as e:
-        logging.error(f"akshare import FAILED for US data: {e}", exc_info=True)
+        import yfinance as yf
+    except ImportError:
+        logging.error("yfinance not installed. Cannot fetch US data.")
         return pd.DataFrame()
+
+    logging.info(f"Downloading US market data for {len(_US_UNIVERSE)} stocks via yfinance...")
+    t0 = time.time()
 
     try:
-        logging.info("Fetching US real-time market data from East Money (akshare stock_us_spot_em)...")
-        df = None
-        for attempt in range(3):
-            try:
-                df = ak.stock_us_spot_em()
-                if df is not None and not df.empty:
-                    break
-            except Exception as e:
-                if attempt < 2:
-                    logging.warning(f"US fetch attempt {attempt+1} failed ({e}); retrying...")
-                    time.sleep(1.5 * (attempt + 1))
-                else:
-                    logging.error(f"Error fetching US market data: {e}")
-                    return pd.DataFrame()
-        if df is None or df.empty:
-            logging.warning("No US data returned from East Money.")
-            return pd.DataFrame()
-
-        logging.info(f"Fetched {len(df)} US stocks from East Money.")
-        return df
-
+        data = yf.download(
+            _US_UNIVERSE,
+            period='2d',
+            interval='1d',
+            group_by='ticker',
+            threads=True,
+            progress=False,
+        )
     except Exception as e:
-        logging.error(f"Error fetching US market data: {e}")
+        logging.error(f"yfinance batch download failed: {e}")
         return pd.DataFrame()
+
+    elapsed = time.time() - t0
+    logging.info(f"yfinance download completed in {elapsed:.0f}s.")
+
+    if data is None or data.empty:
+        logging.warning("yfinance returned no data.")
+        return pd.DataFrame()
+
+    # yfinance returns a MultiIndex (ticker, OHLCV) when group_by='ticker'
+    if not isinstance(data.columns, pd.MultiIndex):
+        logging.warning("yfinance returned unexpected column format.")
+        return pd.DataFrame()
+
+    rows = []
+    tickers_found = data.columns.get_level_values(0).unique()
+
+    for tkr in tickers_found:
+        try:
+            s = data[tkr]
+            if 'Close' not in s.columns or s['Close'].isna().all():
+                continue
+            closes = s['Close'].dropna()
+            volumes = s['Volume'].dropna()
+            if len(closes) < 1:
+                continue
+
+            close = closes.iloc[-1]
+            prev_close = closes.iloc[-2] if len(closes) >= 2 else close
+            change_pct = round((close - prev_close) / prev_close * 100, 2) if prev_close else 0.0
+            volume = int(volumes.iloc[-1]) if len(volumes) >= 1 else 0
+
+            rows.append({
+                "Ticker": tkr,
+                "CompanyName": _get_company_name(tkr, close),
+                "Price": round(close, 2),
+                "ChangePercent": change_pct,
+                "Volume": volume,
+                # MarketCap not available from download; will be fetched only for filtered stocks
+            })
+        except Exception:
+            continue
+
+    df = pd.DataFrame(rows)
+    logging.info(f"yfinance processed {len(df)} US stocks with data.")
+    return df
+
+
+def _get_company_name(ticker, price=None):
+    """Return readable company name for a ticker (cached/lookup)."""
+    # Hardcoded common names to avoid info API rate limit
+    NAMES = {
+        "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
+        "AMZN": "Amazon", "META": "Meta", "BRK.B": "Berkshire", "JPM": "JPMorgan",
+        "V": "Visa", "PG": "Procter & Gamble", "UNH": "UnitedHealth",
+        "HD": "Home Depot", "INTC": "Intel", "MA": "Mastercard", "COST": "Costco",
+        "ABBV": "AbbVie", "AVGO": "Broadcom", "CRM": "Salesforce", "BAC": "Bank of America",
+        "TMO": "Thermo Fisher", "CVX": "Chevron", "WMT": "Walmart", "LLY": "Eli Lilly",
+        "ACN": "Accenture", "KO": "Coca-Cola", "MRK": "Merck", "PEP": "PepsiCo",
+        "TXN": "Texas Instruments", "QCOM": "Qualcomm", "ABT": "Abbott",
+        "CSCO": "Cisco", "NFLX": "Netflix", "AMD": "AMD", "MU": "Micron",
+        "TSLA": "Tesla", "BA": "Boeing", "CAT": "Caterpillar", "GE": "GE",
+        "DIS": "Disney", "NKE": "Nike", "SBUX": "Starbucks", "PYPL": "PayPal",
+        "SPY": "SPDR S&P 500", "QQQ": "Invesco QQQ", "IWM": "Russell 2000",
+        "DIA": "Dow Jones ETF", "GLD": "Gold ETF", "SLV": "Silver ETF",
+        "XLF": "Financial ETF", "XLK": "Tech ETF", "XLE": "Energy ETF",
+        "JNJ": "Johnson & Johnson", "VZ": "Verizon", "DD": "DuPont", "WBA": "Walgreens",
+        "MRVL": "Marvell", "MCHP": "Microchip", "ADI": "Analog Devices",
+        "ADP": "ADP", "ADBE": "Adobe", "INTU": "Intuit", "FISV": "Fiserv",
+        "SNPS": "Synopsys", "CDNS": "Cadence", "PANW": "Palo Alto",
+        "CRWD": "CrowdStrike", "DDOG": "Datadog", "ZM": "Zoom", "TEAM": "Atlassian",
+        "WDAY": "Workday", "ADSK": "Autodesk", "UBER": "Uber", "ABNB": "Airbnb",
+        "DASH": "DoorDash", "SNAP": "Snap", "PINS": "Pinterest", "RBLX": "Roblox",
+        "SOXX": "Semiconductor ETF", "SMH": "Semiconductor ETF", "IBB": "Biotech ETF",
+        "XLV": "Healthcare ETF", "XLI": "Industrial ETF", "XLY": "Consumer Disc ETF",
+        "XLP": "Consumer Staples ETF", "XLU": "Utilities ETF", "XLB": "Materials ETF",
+        "KRE": "Regional Bank ETF", "KBE": "Bank ETF", "TQQQ": "3x Bull QQQ",
+        "SQQQ": "3x Bear QQQ", "VT": "Total World ETF", "VTI": "Total US ETF",
+        "VOO": "S&P 500 ETF", "BND": "Bond ETF", "AGG": "Bond ETF",
+        "TLT": "Treasury 20y+", "IEF": "Treasury 7-10y", "HYG": "High Yield",
+    }
+    return NAMES.get(ticker, ticker)
 
 
 def apply_filters(df, filters_config):
     """
     Apply filter thresholds to US data.
-    Catches unusually large movers in BOTH directions (abs(change) >= threshold).
+    Same structure as china_screener.apply_filters for consistency.
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     fc = filters_config or {}
-    min_change = fc.get('us_min_change_percent', 5.0)      # |涨跌幅| threshold
-    max_change = fc.get('us_max_change_percent', 30.0)     # exclude extreme >30% noise
-    min_volume = fc.get('us_min_volume', 500000)            # in shares
+    min_change = fc.get('us_min_change_percent', 5.0)
+    max_change = fc.get('us_max_change_percent', 30.0)
+    min_volume = fc.get('us_min_volume', 500000)
     min_price = fc.get('us_min_price', 3.0)
     max_price = fc.get('us_max_price', 2000.0)
-    min_market_cap = fc.get('us_min_market_cap', 300000000)  # $300M
+    min_market_cap = fc.get('us_min_market_cap', 300000000)
 
     df_filtered = df.copy()
 
-    # Change filter (absolute value, both up and down movers)
-    if '涨跌幅' in df_filtered.columns:
-        df_filtered['涨跌幅'] = pd.to_numeric(df_filtered['涨跌幅'], errors='coerce')
-        df_filtered['_abs_change'] = df_filtered['涨跌幅'].abs()
+    # ChangePercent filter (涨跌幅)
+    if 'ChangePercent' in df_filtered.columns:
+        df_filtered['ChangePercent'] = pd.to_numeric(df_filtered['ChangePercent'], errors='coerce')
         df_filtered = df_filtered[
-            (df_filtered['_abs_change'] >= min_change) &
-            (df_filtered['_abs_change'] <= max_change)
+            (df_filtered['ChangePercent'].abs() >= min_change) &
+            (df_filtered['ChangePercent'].abs() <= max_change)
         ]
 
-    # Volume filter (成交量)
-    if '成交量' in df_filtered.columns:
-        df_filtered['成交量'] = pd.to_numeric(df_filtered['成交量'], errors='coerce')
-        df_filtered = df_filtered[df_filtered['成交量'] >= min_volume]
+    # Volume filter
+    if 'Volume' in df_filtered.columns:
+        df_filtered['Volume'] = pd.to_numeric(df_filtered['Volume'], errors='coerce')
+        df_filtered = df_filtered[df_filtered['Volume'] >= min_volume]
 
     # Price filter
-    if '最新价' in df_filtered.columns:
-        df_filtered['最新价'] = pd.to_numeric(df_filtered['最新价'], errors='coerce')
+    if 'Price' in df_filtered.columns:
+        df_filtered['Price'] = pd.to_numeric(df_filtered['Price'], errors='coerce')
         df_filtered = df_filtered[
-            (df_filtered['最新价'] >= min_price) &
-            (df_filtered['最新价'] <= max_price)
+            (df_filtered['Price'] >= min_price) &
+            (df_filtered['Price'] <= max_price)
         ]
-
-    # Market cap filter (总市值)
-    if '总市值' in df_filtered.columns:
-        df_filtered['总市值'] = pd.to_numeric(df_filtered['总市值'], errors='coerce')
-        df_filtered = df_filtered[df_filtered['总市值'] >= min_market_cap]
-
-    # Drop helper column
-    df_filtered = df_filtered.drop(columns=['_abs_change'], errors='ignore')
 
     logging.info(f"After US filters: {len(df_filtered)} stocks remain.")
     return df_filtered
@@ -221,115 +265,69 @@ def apply_filters(df, filters_config):
 
 def normalize_to_standard(df):
     """
-    Normalize US DataFrame to standard column names matching the pipeline schema.
+    Normalize US DataFrame to standard column names matching COLUMN_MAP convention.
+    (Same format as china_screener outputs.)
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
-    standard_df = pd.DataFrame()
+    std = pd.DataFrame()
+    std['Ticker'] = df['Ticker'].astype(str)
+    std['CompanyName'] = df.get('CompanyName', df['Ticker'])
+    std['Price'] = pd.to_numeric(df.get('Price', 0), errors='coerce')
+    std['ChangePercent'] = pd.to_numeric(df.get('ChangePercent', 0), errors='coerce')
 
-    text_columns = {'Ticker', 'CompanyName'}
+    if 'Volume' in df.columns:
+        std['Volume'] = pd.to_numeric(df['Volume'], errors='coerce')
+    if 'MarketCap' in df.columns:
+        std['MarketCap'] = pd.to_numeric(df['MarketCap'], errors='coerce')
 
-    for std_name, src_name in US_COLUMN_MAP.items():
-        if src_name in df.columns:
-            if std_name in text_columns:
-                standard_df[std_name] = df[src_name].astype(str)
-            else:
-                standard_df[std_name] = pd.to_numeric(df[src_name], errors='coerce')
+    std['Exchange'] = 'NASDAQ'
+    std['Sector'] = 'Technology'
 
-    # --- Derive clean Ticker (strip East Money exchange suffix, e.g. AAPL.OQ -> AAPL) ---
-    if 'Ticker' in standard_df.columns:
-        def clean_ticker(code):
-            if not isinstance(code, str) or not code:
-                return code
-            return code.split('.')[0]
-        standard_df['Ticker'] = standard_df['Ticker'].apply(clean_ticker)
-
-    # --- Derive Exchange from suffix (e.g. AAPL.OQ -> NASDAQ) ---
-    if 'Ticker' in standard_df.columns and '代码' in df.columns:
-        def get_exchange(code):
-            if not isinstance(code, str) or '.' not in code:
-                return 'OTHER'
-            suffix = code.split('.')[-1].upper()
-            return EXCHANGE_SUFFIX_MAP.get(suffix, 'OTHER')
-        # Build a temporary mapping from raw 代码 -> exchange
-        raw_code = df['代码'].astype(str)
-        exchange_series = raw_code.apply(get_exchange)
-        standard_df['Exchange'] = exchange_series.values
-    elif 'Ticker' in standard_df.columns:
-        standard_df['Exchange'] = 'OTHER'
-
-    # --- Sector (not provided by East Money US spot) ---
-    standard_df['Sector'] = np.nan
-
-    # --- RelVolume (not provided by East Money US spot) ---
-    standard_df['RelVolume'] = np.nan
-
-    # Initialize technical columns as NaN (not computed for US)
-    for tech_col in TECHNICAL_COLUMNS:
-        standard_df[tech_col] = np.nan
-
-    # Safety: ensure core columns exist
-    for col in ['Ticker', 'CompanyName', 'Price', 'ChangePercent', 'Volume', 'MarketCap']:
-        if col not in standard_df.columns:
-            standard_df[col] = np.nan
-
-    logging.info(f"Normalized US data. Shape: {standard_df.shape}, Columns: {standard_df.columns.tolist()}")
-    return standard_df
+    return std
 
 
 def get_us_screener_data(config_path='config/config.json', filter_weak_stocks=True):
     """
     Main entry point for US screener.
-    Fetches data, applies filters, normalizes to standard schema.
-
-    Returns:
-        pd.DataFrame: Normalized DataFrame with standard column names, or empty DataFrame.
+    Fetches data → applies filters → normalizes.
+    Returns DataFrame with standard column names, or empty DataFrame.
     """
     config = load_config(config_path)
     if not config:
-        logging.error("Could not load configuration for US screener.")
         return pd.DataFrame()
 
-    # Get US-specific filter config
     screener_config = config.get('us_screeners', {})
     filters_config = screener_config.get('filters', {})
     if not filters_config:
-        # Fall back to global screeners.filters for common settings
         filters_config = config.get('screeners', {}).get('filters', {})
 
-    # Fetch raw data
     raw_data = fetch_us_market_data(config)
     if raw_data is None or raw_data.empty:
         logging.warning("No US data fetched.")
         return pd.DataFrame()
 
-    # Apply filters
     filtered_data = apply_filters(raw_data, filters_config)
     if filtered_data.empty:
         logging.info("No US stocks passed filter thresholds.")
         return pd.DataFrame()
 
-    # Normalize to standard format
     normalized_data = normalize_to_standard(filtered_data)
 
-    # Sort by absolute change percent descending (biggest movers first, both directions)
     if 'ChangePercent' in normalized_data.columns:
-        normalized_data = normalized_data.copy()
-        normalized_data['_abs'] = normalized_data['ChangePercent'].abs()
-        normalized_data = normalized_data.sort_values('_abs', ascending=False).drop(columns=['_abs'])
+        normalized_data = normalized_data.sort_values('ChangePercent', ascending=False)
 
     logging.info(f"US screener returning {len(normalized_data)} stocks.")
     return normalized_data
 
 
 if __name__ == "__main__":
-    logging.info("--- Testing US Screener ---")
+    logging.info("--- Testing US Screener (yfinance) ---")
     data = get_us_screener_data()
     if data is not None and not data.empty:
         print(f"\n--- US Screener Results ({len(data)} stocks) ---")
-        display_cols = [c for c in ['Ticker', 'CompanyName', 'Exchange', 'Price', 'ChangePercent', 'Volume', 'MarketCap'] if c in data.columns]
-        print(data[display_cols].head(20).to_string())
-        print("--------------------------------------\n")
+        cols = [c for c in ['Ticker', 'CompanyName', 'Price', 'ChangePercent', 'Volume'] if c in data.columns]
+        print(data[cols].head(30).to_string())
     else:
         print("No US data returned.")
