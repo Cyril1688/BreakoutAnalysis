@@ -271,18 +271,6 @@ def format_stock_card(stock_data):
             head = f"{reason}" + (f" · {explain}" if explain and explain != reason else "")
             lines.append(f"\n**🐉 龙虎榜**\n{head} · 净买额 {emo} {net_txt}{extra}")
 
-        # 北向资金 (全市场, 每次运行仅抓一次)
-        nb = enrich.get('northbound') or {}
-        if nb.get('available') and nb.get('total_net_yi') is not None:
-            tot = nb.get('total_net_yi') or 0
-            sh = nb.get('sh_net_yi'); sz = nb.get('sz_net_yi')
-            emo = "🔴" if tot > 0 else ("🟢" if tot < 0 else "⚪")
-            brk = ""
-            if sh is not None or sz is not None:
-                brk = f" (沪 {sh}/深 {sz})"
-            note = " · 盘中待回填" if tot == 0 else ""
-            lines.append(f"\n**🌏 北向资金**\n净买额 {emo} {tot}亿{brk}{note}")
-
     return title, lines, color
 
 
