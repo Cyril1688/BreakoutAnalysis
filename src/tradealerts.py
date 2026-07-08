@@ -994,9 +994,10 @@ def process_market_data(market_name, screener_df, llm_client, today_dir):
     os.makedirs(market_analysis_dir, exist_ok=True)
     analysis_file_path = os.path.join(market_analysis_dir, "analysis.json")
     
-    # Save all current results to analysis file
-    _save_analysis(analysis_file_path, screener_df)
+    # 先加载已处理的股票（来自之前的批次），再保存当前批次
+    # 避免 save→load 顺序颠倒导致新股票永远为空
     processed_tickers = _load_processed_tickers(analysis_file_path)
+    _save_analysis(analysis_file_path, screener_df)
 
     # 2. Identify new stocks
     current_tickers = set(screener_df['Ticker'])
