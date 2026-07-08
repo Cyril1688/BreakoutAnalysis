@@ -253,7 +253,7 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
     # Define columns needed from the DataFrame
     notify_cols = [
         'Ticker', 'CompanyName', 'Price', 'ChangePercent', 'Volume', 'MarketCap', 'Sector',
-        'RelVolume',
+        'RelVolume', 'BBI',
         'RSI', 'MACD_MACD', 'MACD_Signal',
         'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'VWAP',
         'Pivot_S1', 'Pivot_S2', 'Pivot_S3', 'Pivot_R1', 'Pivot_R2', 'Pivot_R3'
@@ -351,39 +351,25 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
                 core_data_lines.append(f"**{display_name}:** {value_str}")
         stock_data['core_data_str'] = "\n".join(core_data_lines) if core_data_lines else "N/A"
 
-        # --- Technicals ---
+        # --- Technicals (仅显示 BBI 多空指标) ---
         technicals_lines = []
-        tech_display = {
-            'RSI': 'RSI',
-            'MACD_MACD': 'MACD',
-            'MACD_Signal': 'MACD信号',
-            'SMA10': 'SMA10',
-            'SMA20': 'SMA20',
-            'SMA50': 'SMA50',
-            'SMA100': 'SMA100',
-            'SMA200': 'SMA200',
-            'VWAP': 'VWAP',
-        }
-        tech_cols = ['RSI', 'MACD_MACD', 'MACD_Signal', 'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'VWAP']
-        tech_vals = {}
-        for col in tech_cols:
-            if col in available_cols:
-                value = row.get(col)
-                if isinstance(value, (int, float)) and pd.notna(value):
-                    tech_vals[col] = float(value)
-        # 兜底：若该股票在抓取阶段未计算到技术指标（如超出前 30 只），现算一次（仅 A 股）
-        if not tech_vals and market == 'china':
+        # 尝试从 DataFrame 取 BBI
+        bbi_val = row.get('BBI') if 'BBI' in available_cols else None
+        if bbi_val is not None and isinstance(bbi_val, (int, float)) and pd.notna(bbi_val):
+            bbi_str = f"{float(bbi_val):.2f}"
+        else:
+            # 兜底：通过 get_technical_indicators 计算
+            bbi_str = "N/A"
             try:
                 from src.screeners.china_screener import get_technical_indicators
                 ind = get_technical_indicators(ticker)
-                for col in tech_cols:
-                    if col in ind and ind[col] is not None:
-                        tech_vals[col] = float(ind[col])
+                b = ind.get('BBI')
+                if b is not None:
+                    bbi_str = f"{float(b):.2f}"
             except Exception as te:
-                logging.warning(f"Fallback technical calc failed for {ticker}: {te}")
-        for col in tech_cols:
-            if col in tech_vals:
-                technicals_lines.append(f"**{tech_display.get(col, col)}:** {tech_vals[col]:.2f}")
+                logging.warning(f"BBI fallback calc failed for {ticker}: {te}")
+        if bbi_str != "N/A":
+            technicals_lines.append(f"**BBI 多空指标:** {bbi_str}")
         stock_data['technicals_str'] = "\n".join(technicals_lines) if technicals_lines else "N/A"
 
         # --- News ---
