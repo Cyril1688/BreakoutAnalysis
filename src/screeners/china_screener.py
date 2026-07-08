@@ -333,14 +333,29 @@ def normalize_to_standard(df):
     # Add Sector - 先尝试从 akshare 获取真实行业，失败则用代码前缀推测
     if 'Ticker' in standard_df.columns:
         def fetch_real_sector(ticker):
-            """通过 akshare 个股详情接口获取真实行业。"""
+            """通过 akshare 或 HTTP API 获取真实行业。"""
+            import akshare as ak
+            # 方法1: akshare 个股详情
             try:
-                import akshare as ak
                 info = ak.stock_individual_info_em(symbol=ticker)
                 if info is not None and not info.empty:
                     row = info[info['item'] == '行业']
                     if not row.empty:
                         return str(row['value'].iloc[0])
+            except Exception:
+                pass
+            # 方法2: 直接 HTTP API (push2.eastmoney.com)
+            try:
+                import requests as req
+                secid = f"1.{ticker}" if ticker.startswith('6') else f"0.{ticker}"
+                url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f57,f58,f85"
+                r = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                jn = r.json()
+                d = jn.get("data", {})
+                ind_name = d.get("f85")  # 行业代码
+                # f85 返回行业名称
+                if ind_name and ind_name != "-":
+                    return str(ind_name)
             except Exception:
                 pass
             return None
