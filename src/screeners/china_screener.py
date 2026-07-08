@@ -330,22 +330,47 @@ def normalize_to_standard(df):
             return 'OTHER'
         standard_df['Exchange'] = standard_df['Ticker'].apply(get_exchange)
 
-    # Add Sector placeholder (East Money spot data doesn't include sector directly)
-    # We can infer from exchange/code
+    # Add Sector - 先尝试从 akshare 获取真实行业，失败则用代码前缀推测
     if 'Ticker' in standard_df.columns:
+        def fetch_real_sector(ticker):
+            """通过 akshare 个股详情接口获取真实行业。"""
+            try:
+                import akshare as ak
+                info = ak.stock_individual_info_em(symbol=ticker)
+                if info is not None and not info.empty:
+                    row = info[info['item'] == '行业']
+                    if not row.empty:
+                        return str(row['value'].iloc[0])
+            except Exception:
+                pass
+            return None
+
+        # 批量获取（失败静默，fallback 到推测）
+        sector_map = {}
+        for t in standard_df['Ticker'].unique():
+            s = fetch_real_sector(t)
+            if s:
+                sector_map[t] = s
+
         def infer_sector(ticker):
+            if ticker in sector_map:
+                return sector_map[ticker]
             if ticker.startswith('688'):
-                return 'Technology Services'  # STAR board
+                return '信息技术'  # STAR board
             elif ticker.startswith('300'):
-                return 'Electronic Technology'  # ChiNext
+                return '电子科技'  # ChiNext
+            elif ticker.startswith('301'):
+                return '中小板'    # SZSE main (301xxx)
             elif ticker.startswith('60'):
-                return 'Industrial'  # Shanghai main
+                return '制造业'    # Shanghai main
             elif ticker.startswith('00'):
-                return 'Industrial'  # Shenzhen main
+                return '制造业'    # Shenzhen main
             elif ticker.startswith('4') or ticker.startswith('8'):
-                return 'Industrial'  # BSE
-            return 'Other'
+                return '制造业'    # BSE
+            return '其他'
         standard_df['Sector'] = standard_df['Ticker'].apply(infer_sector)
+        matched = len(sector_map)
+        logging.info(f"Sector info: {matched}/{len(standard_df)} from akshare API, remainder from code inference.")
 
     # RelVolume - use 量比 (volume ratio)
     if 'VolumeRatio' in standard_df.columns:
