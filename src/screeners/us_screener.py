@@ -259,6 +259,11 @@ def apply_filters(df, filters_config):
             (df_filtered['Price'] <= max_price)
         ]
 
+    # MarketCap filter (之前被读取但未使用，已修)
+    if 'MarketCap' in df_filtered.columns:
+        df_filtered['MarketCap'] = pd.to_numeric(df_filtered['MarketCap'], errors='coerce')
+        df_filtered = df_filtered[df_filtered['MarketCap'] >= min_market_cap]
+
     logging.info(f"After US filters: {len(df_filtered)} stocks remain.")
     return df_filtered
 
@@ -282,8 +287,10 @@ def normalize_to_standard(df):
     if 'MarketCap' in df.columns:
         std['MarketCap'] = pd.to_numeric(df['MarketCap'], errors='coerce')
 
-    std['Exchange'] = 'NASDAQ'
-    std['Sector'] = 'Technology'
+    # Exchange/Sector 推测（yfinance 不直接返回，用代码长度做启发式）
+    # NYSE 传统股多为 1-3 字母代码，NASDAQ 多为 4+ 字母
+    std['Exchange'] = std['Ticker'].apply(lambda t: 'NYSE' if len(t) <= 3 and not t.endswith('.') else 'NASDAQ')
+    std['Sector'] = 'Technology'  # yfinance 不返回行业，统一标记
 
     return std
 
