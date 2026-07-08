@@ -7,7 +7,13 @@ import os
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
 
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
+# Lazy import playwright so missing dependency doesn't crash the whole pipeline
+try:
+    from playwright.async_api import async_playwright, Page, Browser, BrowserContext
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    _PLAYWRIGHT_AVAILABLE = False
+    async_playwright = Page = Browser = BrowserContext = None
 
 from .config import (
     DEFAULT_IMAGE_TYPE,
