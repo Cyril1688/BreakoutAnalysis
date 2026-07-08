@@ -27,6 +27,10 @@ class GPTUnified(BaseModel):
         """
         super().__init__(config)
         self.model_name = config.get("name", "gpt-4o-mini")  # Default to gpt-4o if not specified
+        # The config uses the legacy routing name "AGNES_2_FLASH"; map it to the
+        # real model identifier expected by the AGNES API.
+        if self.model_name == "AGNES_2_FLASH":
+            self.model_name = "agnes-2.0-flash"
         self.client = None
         self.api_key = config.get("api_key")  # Get key from config first
 
@@ -45,8 +49,14 @@ class GPTUnified(BaseModel):
                     client_kwargs["base_url"] = base_url
 
                 self.client = OpenAI(**client_kwargs)
-                # Verify connection (optional, but good practice)
-                self.client.models.list()
+                # Verify connection (optional). Many OpenAI-compatible endpoints
+                # (e.g. AGNES) don't implement GET /models, so don't fail hard here.
+                try:
+                    self.client.models.list()
+                    logging.info(f"Model endpoint reachable{' @ ' + base_url if base_url else ''}")
+                except Exception as verify_err:
+                    logging.warning(f"Model list check skipped ({verify_err}); "
+                                    f"proceeding with client for model '{self.model_name}'")
                 logging.info(f"Initialized GPTUnified client for model '{self.model_name}'"
                              f"{' @ ' + base_url if base_url else ''}")
             except Exception as e:
