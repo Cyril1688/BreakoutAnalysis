@@ -98,7 +98,7 @@ _NORTHBOUND_CACHE = {"data": None}
 def _load_enrich_config():
     cfg = {
         "enabled": True, "min_interval": 1.0, "news_limit": 3, "concept_limit": 8,
-        "lhb": {"enabled": True}, "zt_pool": {"enabled": True}, "northbound": {"enabled": True},
+        "lhb": {"enabled": True}, "zt_pool": {"enabled": True}, "northbound": {"enabled": False},
     }
     try:
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -440,8 +440,11 @@ def get_northbound():
 
 
 def get_market_context():
-    """全局市场上下文(通知头部可用): 当前仅北向资金。"""
-    return {"northbound": get_northbound()}
+    """全局市场上下文(通知头部可用): 当前仅北向资金(2024-08 起盘中不再披露, 默认关闭)。"""
+    cfg = _load_enrich_config()
+    if cfg.get("northbound", {}).get("enabled", False):
+        return {"northbound": get_northbound()}
+    return {"northbound": {}}
 
 
 # ── 聚合入口 ───────────────────────────────────────────────────────────────
