@@ -229,9 +229,6 @@ def fetch_china_market_data(config):
     logging.warning("All A-share data sources exhausted. Returning empty DataFrame.")
     return pd.DataFrame()
 
-    logging.warning("All A-share data sources exhausted. Returning empty DataFrame.")
-    return pd.DataFrame()
-
 
 def apply_filters(df, filters_config):
     """
@@ -330,62 +327,71 @@ def normalize_to_standard(df):
             return 'OTHER'
         standard_df['Exchange'] = standard_df['Ticker'].apply(get_exchange)
 
-    # Add Sector - 先尝试从 akshare 获取真实行业，失败则用代码前缀推测
+    # Add Sector - 优化：先尝试批量获取行业映射（1 次 API 调用替代 N 次）
     if 'Ticker' in standard_df.columns:
-        def fetch_real_sector(ticker):
-            """通过 akshare 或 HTTP API 获取真实行业。"""
+        sector_map = {}
+
+        # 方法1: 批量行业映射（akshare 行业成分股列表，一次调用拉取全市场）
+        try:
             import akshare as ak
-            # 方法1: akshare 个股详情
-            try:
-                info = ak.stock_individual_info_em(symbol=ticker)
-                if info is not None and not info.empty:
-                    row = info[info['item'] == '行业']
-                    if not row.empty:
-                        return str(row['value'].iloc[0])
-            except Exception:
-                pass
-            # 方法2: 直接 HTTP API (push2.eastmoney.com)
+            boards = ak.stock_board_industry_name_em()
+            if boards is not None and not boards.empty and '代码' in boards.columns and '名称' in boards.columns and '行业名称' in boards.columns:
+                # 遍历每只股票的行业归属
+                for _, b_row in boards.iterrows():
+                    stock_code = str(b_row['代码']).strip().zfill(6)
+                    industry = str(b_row['行业名称']).strip()
+                    if stock_code and industry:
+                        # 行业成分表中同只股票可能出现在多个行业，取第一个
+                        if stock_code not in sector_map:
+                            sector_map[stock_code] = industry
+        except Exception:
+            pass
+
+        # 方法2: 对方法1没覆盖到的股票逐个 HTTP 查询
+        def fetch_real_sector(ticker):
+            if ticker in sector_map:
+                return sector_map[ticker]
             try:
                 import requests as req
                 secid = f"1.{ticker}" if ticker.startswith('6') else f"0.{ticker}"
                 url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f57,f58,f85"
-                r = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                r = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
                 jn = r.json()
                 d = jn.get("data", {})
-                ind_name = d.get("f85")  # 行业代码
-                # f85 返回行业名称
-                if ind_name and ind_name != "-":
-                    return str(ind_name)
+                ind = d.get("f85")
+                if ind and ind != "-":
+                    sector_map[ticker] = str(ind)
+                    return str(ind)
             except Exception:
                 pass
             return None
 
-        # 批量获取（失败静默，fallback 到推测）
-        sector_map = {}
-        for t in standard_df['Ticker'].unique():
-            s = fetch_real_sector(t)
-            if s:
-                sector_map[t] = s
+        # 对方法1缺失的股票做补充查询
+        missing = [t for t in standard_df['Ticker'].unique() if t not in sector_map]
+        if missing:
+            for t in missing:
+                fetch_real_sector(t)
 
+        # 方法3: 代码前缀推测兜底
         def infer_sector(ticker):
             if ticker in sector_map:
                 return sector_map[ticker]
             if ticker.startswith('688'):
-                return '信息技术'  # STAR board
+                return '信息技术'  # 科创板
             elif ticker.startswith('300'):
-                return '电子科技'  # ChiNext
+                return '电子科技'  # 创业板
             elif ticker.startswith('301'):
-                return '中小板'    # SZSE main (301xxx)
+                return '中小板'    # 深市主板
             elif ticker.startswith('60'):
-                return '制造业'    # Shanghai main
+                return '制造业'    # 沪市主板
             elif ticker.startswith('00'):
-                return '制造业'    # Shenzhen main
+                return '制造业'    # 深市主板
             elif ticker.startswith('4') or ticker.startswith('8'):
-                return '制造业'    # BSE
+                return '制造业'    # 北交所
             return '其他'
         standard_df['Sector'] = standard_df['Ticker'].apply(infer_sector)
-        matched = len(sector_map)
-        logging.info(f"Sector info: {matched}/{len(standard_df)} from akshare API, remainder from code inference.")
+        matched = len([t for t in standard_df['Ticker'] if t in sector_map])
+        logging.info(f"Sector info: {matched}/{len(standard_df)} from API, remainder from code inference.")
 
     # RelVolume - use 量比 (volume ratio)
     if 'VolumeRatio' in standard_df.columns:
