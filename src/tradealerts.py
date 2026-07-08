@@ -444,7 +444,8 @@ def update_notify_json(structured_data):
     for path in [NOTIFY_JSON_PATH, EMAIL_NOTIFY_JSON_PATH]:
         try:
             with open(path, 'w') as f:
-                json.dump(structured_data, f, indent=4)
+                # default=str so date/datetime/other non-JSON types serialize safely
+                json.dump(structured_data, f, indent=4, default=str)
             logging.info(f"Updated notification file: {path} with {len(structured_data)} item(s).")
         except Exception as e:
             logging.error(f"Error writing to notification file {path}: {e}")
