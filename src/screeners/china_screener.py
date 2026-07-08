@@ -67,7 +67,7 @@ CHINA_COLUMN_MAP = {
 }
 
 # Technical columns we'll compute
-TECHNICAL_COLUMNS = ['RSI', 'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'MACD_MACD', 'MACD_Signal', 'VWAP']
+TECHNICAL_COLUMNS = ['RSI', 'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'MACD_MACD', 'MACD_Signal', 'VWAP', 'BBI']
 
 
 def load_config():
@@ -132,16 +132,28 @@ def get_technical_indicators(symbol, periods=250):
         indicators = {}
 
         # SMA calculations
+        if len(closes) >= 3:
+            indicators['SMA3'] = float(np.mean(closes[-3:]))
+        if len(closes) >= 6:
+            indicators['SMA6'] = float(np.mean(closes[-6:]))
         if len(closes) >= 10:
             indicators['SMA10'] = float(np.mean(closes[-10:]))
+        if len(closes) >= 12:
+            indicators['SMA12'] = float(np.mean(closes[-12:]))
         if len(closes) >= 20:
             indicators['SMA20'] = float(np.mean(closes[-20:]))
+        if len(closes) >= 24:
+            indicators['SMA24'] = float(np.mean(closes[-24:]))
         if len(closes) >= 50:
             indicators['SMA50'] = float(np.mean(closes[-50:]))
         if len(closes) >= 100:
             indicators['SMA100'] = float(np.mean(closes[-100:]))
         if len(closes) >= 200:
             indicators['SMA200'] = float(np.mean(closes[-200:]))
+
+        # BBI (多空指标) = (MA3 + MA6 + MA12 + MA24) / 4
+        if 'SMA3' in indicators and 'SMA6' in indicators and 'SMA12' in indicators and 'SMA24' in indicators:
+            indicators['BBI'] = float((indicators['SMA3'] + indicators['SMA6'] + indicators['SMA12'] + indicators['SMA24']) / 4)
 
         # RSI (14-day)
         if len(closes) >= 15:
