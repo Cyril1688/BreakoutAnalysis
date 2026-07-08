@@ -252,10 +252,11 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
 
     # Define columns needed from the DataFrame
     notify_cols = [
-        'Ticker', 'CompanyName', 'Price', 'ChangePercent', 'Volume', 'MarketCap', 'Sector', 
-        'RelVolume', 'RSI', 'MACD_MACD', 'MACD_Signal',
+        'Ticker', 'CompanyName', 'Price', 'ChangePercent', 'Volume', 'MarketCap', 'Sector',
+        'RelVolume',
+        'RSI', 'MACD_MACD', 'MACD_Signal',
+        'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'VWAP',
         'Pivot_S1', 'Pivot_S2', 'Pivot_S3', 'Pivot_R1', 'Pivot_R2', 'Pivot_R3'
-        # Add other desired columns like SMAs if needed, e.g., 'SMA20', 'SMA200'
     ]
 
     # Import screenshot service
@@ -355,13 +356,34 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
         tech_display = {
             'RSI': 'RSI',
             'MACD_MACD': 'MACD',
-            'MACD_Signal': 'MACD_Signal',
+            'MACD_Signal': 'MACD信号',
+            'SMA10': 'SMA10',
+            'SMA20': 'SMA20',
+            'SMA50': 'SMA50',
+            'SMA100': 'SMA100',
+            'SMA200': 'SMA200',
+            'VWAP': 'VWAP',
         }
-        for col in ['RSI', 'MACD_MACD', 'MACD_Signal']:
+        tech_cols = ['RSI', 'MACD_MACD', 'MACD_Signal', 'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200', 'VWAP']
+        tech_vals = {}
+        for col in tech_cols:
             if col in available_cols:
                 value = row.get(col)
-                value_str = f"{value:.2f}" if isinstance(value, float) and pd.notna(value) else "N/A"
-                technicals_lines.append(f"**{tech_display.get(col, col)}:** {value_str}")
+                if isinstance(value, (int, float)) and pd.notna(value):
+                    tech_vals[col] = float(value)
+        # 兜底：若该股票在抓取阶段未计算到技术指标（如超出前 30 只），现算一次（仅 A 股）
+        if not tech_vals and market == 'china':
+            try:
+                from src.screeners.china_screener import get_technical_indicators
+                ind = get_technical_indicators(ticker)
+                for col in tech_cols:
+                    if col in ind and ind[col] is not None:
+                        tech_vals[col] = float(ind[col])
+            except Exception as te:
+                logging.warning(f"Fallback technical calc failed for {ticker}: {te}")
+        for col in tech_cols:
+            if col in tech_vals:
+                technicals_lines.append(f"**{tech_display.get(col, col)}:** {tech_vals[col]:.2f}")
         stock_data['technicals_str'] = "\n".join(technicals_lines) if technicals_lines else "N/A"
 
         # --- News ---
@@ -444,7 +466,6 @@ def update_notify_json(structured_data):
     for path in [NOTIFY_JSON_PATH, EMAIL_NOTIFY_JSON_PATH]:
         try:
             with open(path, 'w') as f:
-                # default=str so date/datetime/other non-JSON types serialize safely
                 json.dump(structured_data, f, indent=4, default=str)
             logging.info(f"Updated notification file: {path} with {len(structured_data)} item(s).")
         except Exception as e:
