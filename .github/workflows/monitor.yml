@@ -27,7 +27,7 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install akshare pandas requests pytz openai
+          pip install akshare pandas requests pytz openai yfinance
 
       - name: 生成配置
         run: |
