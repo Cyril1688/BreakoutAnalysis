@@ -1,0 +1,12 @@
+name = "breakout-scheduler"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# 每 30 分钟触发一次。
+# Cloudflare Cron 使用 UTC 时区；北京时间 = UTC+8，
+# 因此等同于「北京时间整点半点」触发，与 A股/美股时段对齐。
+crons = ["*/30 * * * *"]
+
+# GitHub PAT（需有 repo + workflow 权限）通过 Secret 注入，不要写死在代码里：
+#   wrangler secret put GH_PAT
+# 值建议用专门的 fine-grained token，或复用 lof-monitor 已有的 PAT。
