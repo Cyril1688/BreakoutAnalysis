@@ -142,21 +142,6 @@ def send_feishu_card(webhook_url, title, content_lines, color='blue'):
         return False
 
 
-def send_feishu_text(webhook_url, text):
-    """发送纯文本消息（用于简单通知）"""
-    if not webhook_url:
-        return False
-    payload = {
-        "msg_type": "text",
-        "content": {"text": text}
-    }
-    try:
-        resp = _get_requests().post(webhook_url, json=payload, timeout=10)
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logging.error(f"飞书文本消息发送失败: {e}")
-        return False
 
 
 def format_stock_card(stock_data):
@@ -320,14 +305,6 @@ def send_notifications(webhook_url, stock_notifications):
         if not ok:
             all_sent = False
     return all_sent
-
-
-def send_briefing(webhook_url, title, content):
-    """发送市场简报"""
-    if not webhook_url:
-        return False
-    lines = content.split('\n') if isinstance(content, str) else [str(content)]
-    return send_feishu_card(webhook_url, title, lines, FEISHU_COLORS['briefing'])
 
 
 if __name__ == "__main__":

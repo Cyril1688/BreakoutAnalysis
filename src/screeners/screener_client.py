@@ -25,7 +25,6 @@ except ImportError as e:
     try:
         from market_gainers import fetch_screener_data as fetch_market_data, load_config as load_market_config
         from premarket_gappers import fetch_screener_data as fetch_premarket_data, load_config as load_premarket_config
-        # from postmarket_gainers import fetch_postmarket_gainers_data, load_config as load_postmarket_config # Removed postmarket
         US_SCREENER_AVAILABLE = True
         US_SCREENER_MODE = 'tradingview'
         logging.info("Successfully imported legacy US screener (TradingView-based).")
