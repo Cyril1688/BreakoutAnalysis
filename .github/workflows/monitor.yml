@@ -1,12 +1,10 @@
 name: 异动监控
 
 on:
-  schedule:
-    # 北京时间 07:00-15:00 (A股时段) + 21:00-24:00 (美股时段)
-    # UTC 换算: 07:00 CST = 23:00 UTC, 15:00 CST = 07:00 UTC
-    #           21:00 CST = 13:00 UTC, 24:00 CST = 16:00 UTC
-    # 每 30 分钟，仅工作日 (1-5)
-    - cron: '*/30 0-7,13-20 * * 1-5'
+  # ⚠️ 原生 schedule 已废弃：GitHub Actions 定时在高峰延迟严重、经常丢调度，
+  #    导致美股时段（北京时间 21:00-04:00）几乎不被触发，监控长期失效。
+  #    改为由 Cloudflare Worker 的 Cron Trigger 每 30 分钟可靠调用 workflow_dispatch
+  #    （见仓库 cf-scheduler/ 目录，复用了 lof-monitor 项目的同一套方案）。
   workflow_dispatch:
 
 jobs:
