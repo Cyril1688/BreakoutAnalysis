@@ -53,17 +53,30 @@ def load_config(config_path='config/config.json'):
         return None
 
 
+# 中继转发地址（可选）。当 GitHub Actions 美国节点无法直接访问 open.feishu.cn 时，
+# 可把请求发到一个能访问飞书的中继服务（如 Cloudflare Worker），由它转发给飞书。
+# 设置 FEISHU_RELAY_URL 环境变量即自动启用，调用方无需改动。
+RELAY_URL = os.environ.get('FEISHU_RELAY_URL', '').strip()
+
+
+def _resolve_target(webhook_url):
+    """如果有配置中继地址，则发往中继；否则直发飞书。"""
+    if RELAY_URL:
+        return RELAY_URL, True
+    return webhook_url, False
+
+
 def send_feishu_card(webhook_url, title, content_lines, color='blue'):
     """
     发送飞书交互式卡片消息
-    
+
     Args:
-        webhook_url: 飞书 Webhook URL
+        webhook_url: 飞书 Webhook URL（若设置了 FEISHU_RELAY_URL 则本参数被忽略，自动走中继）
         title: 卡片标题
         content_lines: 内容行列表，每行为 markdown 字符串
         color: 卡片主题色 (blue/red/green/purple/grey)
     """
-    if not webhook_url:
+    if not webhook_url and not RELAY_URL:
         logging.error("飞书 Webhook URL 为空")
         return False
 
@@ -101,21 +114,31 @@ def send_feishu_card(webhook_url, title, content_lines, color='blue'):
         "card": card
     }
 
+    target, via_relay = _resolve_target(webhook_url)
     try:
-        resp = _get_requests().post(webhook_url, json=payload, timeout=15)
+        resp = _get_requests().post(target, json=payload, timeout=20)
         resp.raise_for_status()
-        result = resp.json()
+        try:
+            result = resp.json()
+        except Exception:
+            # 响应不是合法 JSON（常见于被网络中间层拦截返回的 HTML 错误页）
+            body_preview = resp.text[:800] if hasattr(resp, 'text') else ''
+            logging.error(
+                f"飞书响应非 JSON (HTTP {resp.status_code}, via_relay={via_relay}): "
+                f"{body_preview!r}"
+            )
+            return False
         if result.get('code') == 0:
-            logging.info(f"飞书卡片发送成功: {title}")
+            logging.info(f"飞书卡片发送成功: {title} (via_relay={via_relay})")
             return True
         else:
             logging.error(f"飞书 API 返回错误: {result}")
             return False
     except _get_requests().exceptions.RequestException as e:
-        logging.error(f"飞书 Webhook 请求失败: {e}")
+        logging.error(f"飞书 Webhook 请求失败 (via_relay={via_relay}): {e}")
         return False
     except Exception as e:
-        logging.error(f"飞书发送异常: {e}")
+        logging.error(f"飞书发送异常 (via_relay={via_relay}): {e}")
         return False
 
 
