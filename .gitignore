@@ -1,0 +1,22 @@
+# ── Python 字节码 / 缓存 ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+env/
+
+# ── 编辑器 / OS 垃圾 ──
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── 日志 / 临时 ──
+*.log

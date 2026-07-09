@@ -109,44 +109,9 @@ def is_us_market_hours():
     return datetime.strptime("09:30", "%H:%M").time() <= t < datetime.strptime("16:00", "%H:%M").time()
 
 
-def fetch_us_market_data(config):
-    """
-    Batch-download US stock prices from Yahoo Finance.
-    Returns a DataFrame with columns:
-      Ticker, CompanyName, Price, ChangePercent, Volume, MarketCap, etc.
-    Falls back gracefully if yfinance is unavailable.
-    """
-    try:
-        import yfinance as yf
-    except ImportError:
-        logging.error("yfinance not installed. Cannot fetch US data.")
-        return pd.DataFrame()
-
-    logging.info(f"Downloading US market data for {len(_US_UNIVERSE)} stocks via yfinance...")
-    t0 = time.time()
-
-    try:
-        data = yf.download(
-            _US_UNIVERSE,
-            period='2d',
-            interval='1d',
-            group_by='ticker',
-            threads=True,
-            progress=False,
-        )
-    except Exception as e:
-        logging.error(f"yfinance batch download failed: {e}")
-        return pd.DataFrame()
-
-    elapsed = time.time() - t0
-    logging.info(f"yfinance download completed in {elapsed:.0f}s.")
-
-    if data is None or data.empty:
-        logging.warning("yfinance returned no data.")
-        return pd.DataFrame()
-
-    # yfinance returns a MultiIndex (ticker, OHLCV) when group_by='ticker'
-    if not isinstance(data.columns, pd.MultiIndex):
+def _process_yfinance(data):
+    """Convert yfinance MultiIndex DataFrame into a standardized rows DataFrame."""
+    if data is None or not isinstance(data.columns, pd.MultiIndex):
         logging.warning("yfinance returned unexpected column format.")
         return pd.DataFrame()
 
@@ -179,9 +144,136 @@ def fetch_us_market_data(config):
         except Exception:
             continue
 
-    df = pd.DataFrame(rows)
-    logging.info(f"yfinance processed {len(df)} US stocks with data.")
-    return df
+    return pd.DataFrame(rows)
+
+
+def _fetch_stooq():
+    """
+    Fallback US quote source: Stooq (https://stooq.com).
+    Free, no API key, and reliably reachable from GitHub Actions
+    (unlike East Money/akshare which are IP-blocked on CI).
+    Returns a DataFrame with Ticker, CompanyName, Price, ChangePercent, Volume.
+    """
+    import urllib.request
+
+    end = datetime.now()
+    start = end - timedelta(days=7)
+    d1 = start.strftime("%Y%m%d")
+    d2 = end.strftime("%Y%m%d")
+
+    per = {}  # ticker -> list of (date, close, volume)
+    chunk_size = 40
+    for i in range(0, len(_US_UNIVERSE), chunk_size):
+        chunk = _US_UNIVERSE[i:i + chunk_size]
+        # Stooq uses '-' for dotted tickers (e.g. BRK-B.us) and '.us' suffix
+        sym_str = "+".join(f"{t.replace('.', '-')}.us" for t in chunk)
+        url = f"https://stooq.com/q/d/l/?s={sym_str}&d1={d1}&d2={d2}&i=d"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                text = resp.read().decode("utf-8", "ignore")
+            lines = text.splitlines()
+            if not lines:
+                continue
+            header = lines[0].split(",")
+            try:
+                ci = header.index("Close")
+                vi = header.index("Volume")
+                di = header.index("Date")
+            except ValueError:
+                logging.warning("Stooq returned unexpected header; skipping chunk.")
+                continue
+            for line in lines[1:]:
+                parts = line.split(",")
+                if len(parts) <= max(ci, vi, di):
+                    continue
+                sym = parts[0].split(".")[0].replace("-", ".")
+                try:
+                    d = parts[di]
+                    close = float(parts[ci])
+                    vol = float(parts[vi])
+                except (ValueError, IndexError):
+                    continue
+                per.setdefault(sym, []).append((d, close, vol))
+        except Exception as e:
+            logging.warning(f"Stooq chunk failed ({sym_str[:40]}...): {e}")
+            continue
+
+    rows = []
+    for tkr, recs in per.items():
+        recs.sort(key=lambda x: x[0])
+        if not recs:
+            continue
+        close = recs[-1][1]
+        vol = recs[-1][2]
+        prev = recs[-2][1] if len(recs) >= 2 else close
+        chg = round((close - prev) / prev * 100, 2) if prev else 0.0
+        rows.append({
+            "Ticker": tkr,
+            "CompanyName": _get_company_name(tkr, close),
+            "Price": round(close, 2),
+            "ChangePercent": chg,
+            "Volume": int(vol),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def fetch_us_market_data(config):
+    """
+    Batch-download US stock prices from Yahoo Finance (yfinance), with an
+    automatic Stooq fallback when yfinance fails or returns no usable data.
+    Returns a DataFrame with columns:
+      Ticker, CompanyName, Price, ChangePercent, Volume
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        logging.error("yfinance not installed. Falling back to Stooq.")
+        yf = None
+
+    df = pd.DataFrame()
+    if yf is not None:
+        logging.info(f"Downloading US market data for {len(_US_UNIVERSE)} stocks via yfinance...")
+        t0 = time.time()
+        try:
+            data = yf.download(
+                _US_UNIVERSE,
+                period='2d',
+                interval='1d',
+                group_by='ticker',
+                threads=True,
+                progress=False,
+            )
+        except Exception as e:
+            logging.error(f"yfinance batch download failed: {e}")
+            data = None
+
+        elapsed = time.time() - t0
+        logging.info(f"yfinance download completed in {elapsed:.0f}s.")
+
+        if data is not None and not data.empty:
+            df = _process_yfinance(data)
+            if not df.empty:
+                logging.info(f"yfinance processed {len(df)} US stocks with data.")
+                return df
+            logging.warning("yfinance returned data but 0 usable rows; trying Stooq fallback.")
+        else:
+            logging.warning("yfinance returned no data; trying Stooq fallback.")
+    else:
+        logging.warning("yfinance unavailable; using Stooq fallback.")
+
+    # ── Fallback: Stooq (free, no key, reliable on CI) ──
+    try:
+        stooq_df = _fetch_stooq()
+        if not stooq_df.empty:
+            logging.info(f"Stooq fallback returned {len(stooq_df)} US stocks.")
+            return stooq_df
+    except Exception as e:
+        logging.error(f"Stooq fallback failed: {e}")
+
+    logging.warning("Both yfinance and Stooq returned no usable US data.")
+    return pd.DataFrame()
 
 
 def _get_company_name(ticker, price=None):
