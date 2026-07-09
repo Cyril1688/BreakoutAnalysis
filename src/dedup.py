@@ -30,7 +30,7 @@ logger = logging.getLogger("DEDUP")
 STATE_PATH = "state/dedup_state.json"
 
 # 默认参数（可被 config.json 的 notifiers.dedup 覆盖）
-DEFAULT_COOLDOWN_MIN = 120      # 同一只股票两次通知的最小间隔（分钟）
+DEFAULT_COOLDOWN_MIN = 40       # 同一只股票两次通知的最小间隔（分钟）
 DEFAULT_UPGRADE_DELTA = 2.0     # 涨跌幅相对上次变化超过此值视为"强度升级"
 DEFAULT_MAX_PER_DAY = 6         # 单只股票单日最多通知次数（安全阀，防极端刷屏）
 
