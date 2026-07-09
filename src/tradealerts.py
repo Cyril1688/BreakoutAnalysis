@@ -972,17 +972,18 @@ def send_email_stock_alerts():
         logging.error(f"Failed to send {batch_type} email stock alerts: {e}")
 
 
-def process_market_data(market_name, screener_df, llm_client, today_dir):
+def process_market_data(market_name, screener_df, llm_client, today_dir, dedup_state):
     """
     Process screener data for a single market (US or China).
     Handles analysis, news collection, and notification preparation.
-    
+
     Args:
         market_name (str): 'us' or 'china'
         screener_df (pd.DataFrame): Normalized screener data
         llm_client (LLMClient): LLM client instance
         today_dir (str): Today's analysis directory
-    
+        dedup_state (dict): 跨运行去重状态（由 src.dedup 管理）
+
     Returns:
         list: Structured notification data for this market
     """
@@ -991,31 +992,45 @@ def process_market_data(market_name, screener_df, llm_client, today_dir):
         return []
 
     logging.info(f"Processing {market_name.upper()} market: {len(screener_df)} stocks.")
-    
+
     # Ensure 'Ticker' column exists
     if 'Ticker' not in screener_df.columns:
         logging.error(f"{market_name.upper()} screener data missing 'Ticker' column. Skipping.")
         return []
 
-    # 1. Handle analysis file
+    # 1. 存档当天全部股票（分析档案，不参与去重判断）
     market_analysis_dir = os.path.join(today_dir, market_name)
     os.makedirs(market_analysis_dir, exist_ok=True)
     analysis_file_path = os.path.join(market_analysis_dir, "analysis.json")
-    
-    # 先加载已处理的股票（来自之前的批次），再保存当前批次
-    # 避免 save→load 顺序颠倒导致新股票永远为空
-    processed_tickers = _load_processed_tickers(analysis_file_path)
     _save_analysis(analysis_file_path, screener_df)
 
-    # 2. Identify new stocks
-    current_tickers = set(screener_df['Ticker'])
-    new_tickers_list = list(current_tickers - processed_tickers)
-    logging.info(f"[{market_name.upper()}] Found {len(new_tickers_list)} new tickers: {new_tickers_list[:10]}...")
-    
-    if not new_tickers_list:
+    # 2. 跨运行去重 + 重复计数（核心：解决 Cloudflare 每 20 分钟重复推送）
+    from src.dedup import classify
+    dedup_cfg = _GLOBAL_CONFIG.get('notifiers', {}).get('dedup', {})
+    cooldown_min = dedup_cfg.get('cooldown_min', 120)
+    upgrade_delta = dedup_cfg.get('upgrade_delta', 2.0)
+
+    current_tickers = list(screener_df['Ticker'])
+    to_notify = []      # (ticker, verdict)
+    suppressed = 0
+    for tkr in current_tickers:
+        row = screener_df[screener_df['Ticker'] == tkr].iloc[0]
+        try:
+            chg = float(row.get('ChangePercent') or 0)
+        except Exception:
+            chg = 0.0
+        verdict = classify(dedup_state, tkr, chg, market=market_name,
+                          cooldown_min=cooldown_min, upgrade_delta=upgrade_delta)
+        if verdict['action'] == 'suppress':
+            suppressed += 1
+            continue
+        to_notify.append((tkr, verdict))
+    logging.info(f"[{market_name.upper()}] 去重后待通知 {len(to_notify)} 只（冷却/重复抑制 {suppressed} 只）")
+
+    if not to_notify:
         return []
 
-    new_stocks_df = screener_df[screener_df['Ticker'].isin(new_tickers_list)].copy()
+    new_stocks_df = screener_df[screener_df['Ticker'].isin([t for t, _ in to_notify])].copy()
 
     # 3. Collect news (market-specific)
     news_results = {}
@@ -1046,9 +1061,16 @@ def process_market_data(market_name, screener_df, llm_client, today_dir):
         market=market_name
     )
 
-    # Tag each notification with market
+    # Tag each notification with market + 去重标签
+    verdict_map = {t: v for t, v in to_notify}
     for item in market_notifications:
         item['market'] = market_name
+        v = verdict_map.get(item.get('ticker'))
+        if v:
+            item['repeat_count'] = v['count']
+            item['intensity_upgraded'] = (v['action'] == 'upgrade')
+            item['first_change'] = v['first_change']
+            item['current_change'] = v['last_change']
 
     return market_notifications
 
@@ -1132,6 +1154,10 @@ def main():
         logging.error(f"Failed to initialize LLMClient: {e}. LLM analysis will be skipped.", exc_info=True)
         llm_client = None
 
+    # --- 加载跨运行去重状态（持久化到仓库 state/dedup_state.json）---
+    from src.dedup import load_state, save_state
+    dedup_state = load_state()
+
     # --- Fetch data for ALL enabled markets ---
     logging.info("Fetching screener data for all enabled markets...")
     try:
@@ -1156,7 +1182,7 @@ def main():
     # Process US market if open
     if market_status.get('us') and not us_data.empty:
         logging.info("=== Processing US market ===")
-        us_notifications = process_market_data('us', us_data, llm_client, today_dir)
+        us_notifications = process_market_data('us', us_data, llm_client, today_dir, dedup_state)
         all_notifications.extend(us_notifications)
     else:
         logging.info(f"Skipping US market processing (open={market_status.get('us')}, data={len(us_data)}).")
@@ -1164,7 +1190,7 @@ def main():
     # Process China market if open
     if market_status.get('china') and not china_data.empty:
         logging.info("=== Processing China market ===")
-        china_notifications = process_market_data('china', china_data, llm_client, today_dir)
+        china_notifications = process_market_data('china', china_data, llm_client, today_dir, dedup_state)
         all_notifications.extend(china_notifications)
     else:
         logging.info(f"Skipping China market processing (open={market_status.get('china')}, data={len(china_data)}).")
@@ -1179,6 +1205,8 @@ def main():
         # Send Discord notifications
         update_notify_json(all_notifications)
         send_notifications()
+        # 持久化去重状态（跨运行）；push 失败会自动降级，不影响通知
+        save_state(dedup_state)
     else:
         logging.info("No new stocks found for notification in this cycle. Will try again in 15 min.")
         update_notify_json([])

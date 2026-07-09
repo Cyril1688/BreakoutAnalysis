@@ -153,15 +153,38 @@ def format_stock_card(stock_data):
     company = stock_data.get('company_name', 'N/A')
     market = stock_data.get('market', 'us')
 
-    # 市场标签
+    # 市场标签 + 重复/升级醒目标签
     market_tag = "🇨🇳 A股" if market == 'china' else "🇺🇸 美股"
-    title = f"{market_tag} {ticker} {company}"
+    repeat_count = stock_data.get('repeat_count')
+    upgraded = stock_data.get('intensity_upgraded', False)
+    if upgraded:
+        title = f"⚡ 强度升级 · 今日第{repeat_count}次 | {market_tag} {ticker} {company}"
+    elif repeat_count and repeat_count > 1:
+        title = f"🔥 持续异动 · 今日第{repeat_count}次 | {market_tag} {ticker} {company}"
+    else:
+        title = f"{market_tag} {ticker} {company}"
 
     # 颜色
     change_str = stock_data.get('core_data_str', '')
     color = FEISHU_COLORS['china_up'] if market == 'china' else FEISHU_COLORS['us_up']
 
     lines = []
+
+    # --- 重复/升级：今日异动轨迹（醒目展示，把"重复"转化为信息）---
+    repeat_count = stock_data.get('repeat_count')
+    first_change = stock_data.get('first_change')
+    current_change = stock_data.get('current_change')
+    if repeat_count and repeat_count > 1 and first_change is not None and current_change is not None:
+        try:
+            fc = float(first_change)
+            cc = float(current_change)
+            arrow = "📈" if cc >= fc else "📉"
+            lines.append(
+                f"**{arrow} 今日异动轨迹：** 首次 {fc:+.2f}% → 当前 {cc:+.2f}%"
+                f"（第 {repeat_count} 次提醒）"
+            )
+        except Exception:
+            pass
 
     # --- 核心数据 ---
     core = stock_data.get('core_data_str', '')
