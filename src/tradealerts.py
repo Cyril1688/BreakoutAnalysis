@@ -1032,6 +1032,7 @@ def process_market_data(market_name, screener_df, llm_client, today_dir, dedup_s
         return []
 
     new_stocks_df = screener_df[screener_df['Ticker'].isin([t for t, _ in to_notify])].copy()
+    new_tickers_list = [t for t, _ in to_notify]  # 供新闻收集 / prepare 使用（修复去重重构遗漏）
 
     # 3. Collect news (market-specific)
     news_results = {}
