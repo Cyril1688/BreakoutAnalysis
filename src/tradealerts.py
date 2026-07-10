@@ -62,9 +62,7 @@ import json # Add json import
 
 NOTIFY_JSON_PATH = "src/notifications/notify.json"
 EMAIL_NOTIFY_JSON_PATH = "src/notifications/email_notify.json"
-# NOTIFY_SCRIPT_PATH = "src/notifications/send_notification.bat" # No longer needed
 DISCORD_NOTIFIER_SCRIPT_PATH = "src/notifications/discord_notifier.py"
-EMAIL_NOTIFIER_SCRIPT_PATH = "src/mail_utils/send_email.py"
 DATE_FORMAT = "%Y-%m-%d"
 
 # 延迟导入 MarketBriefingClient（在 send_market_briefing 函数内导入）
@@ -81,87 +79,6 @@ except Exception:
 # TradingView chart ID (from config or fallback to empty string)
 _TV_CHART_ID = _GLOBAL_CONFIG.get('tradingview', {}).get('chart_id', '')
 _TV_COOKIES_SET = bool(_GLOBAL_CONFIG.get('tradingview', {}).get('cookies', {}).get('sessionid', ''))
-
-def get_today_analysis_path():
-    """Gets the path for today's analysis JSON file."""
-    today_str = datetime.now().strftime(DATE_FORMAT)
-    today_dir = os.path.join(ANALYSIS_BASE_DIR, today_str)
-    os.makedirs(today_dir, exist_ok=True)
-    # Change extension to .json
-    return os.path.join(today_dir, "analysis.json") 
-
-def load_processed_tickers(analysis_file_path):
-    """Loads processed tickers from the daily analysis JSON file."""
-    processed_data = {}
-    if os.path.exists(analysis_file_path):
-        try:
-            with open(analysis_file_path, 'r') as f:
-                processed_data = json.load(f)
-            logging.info(f"Loaded {len(processed_data)} previously processed tickers from {analysis_file_path}")
-        except json.JSONDecodeError:
-            logging.error(f"Error decoding JSON from {analysis_file_path}. Starting fresh.")
-            # Optionally backup the corrupted file here
-            processed_data = {}
-        except Exception as e:
-            logging.error(f"Error reading analysis file {analysis_file_path}: {e}")
-            processed_data = {}
-    else:
-        logging.info(f"Analysis file {analysis_file_path} not found. Starting fresh.")
-        
-    return set(processed_data.keys()) # Return only the set of tickers
-
-def save_analysis(analysis_file_path, screener_data_df):
-    """Loads existing data, updates with new data, and saves to the analysis JSON file."""
-    if screener_data_df.empty:
-        logging.info("No new screener data to save.")
-        return
-        
-    # Ensure 'Ticker' column exists before proceeding
-    if 'Ticker' not in screener_data_df.columns:
-        logging.error("Cannot save analysis: DataFrame is missing 'Ticker' column.")
-        return
-
-    # Load existing data
-    processed_data = {}
-    if os.path.exists(analysis_file_path):
-        try:
-            with open(analysis_file_path, 'r') as f:
-                processed_data = json.load(f)
-            logging.info(f"Loaded {len(processed_data)} existing records from {analysis_file_path}")
-        except json.JSONDecodeError:
-            logging.warning(f"Could not decode existing JSON from {analysis_file_path}. Overwriting with new data.")
-            processed_data = {}
-        except Exception as e:
-            logging.error(f"Error reading existing analysis file {analysis_file_path}: {e}. Starting fresh.")
-            processed_data = {}
-
-    # Replace NaN values with None (which becomes JSON null) before converting
-    screener_data_df_cleaned = screener_data_df.where(pd.notna(screener_data_df), None)
-
-    # Convert cleaned DataFrame data to dictionary format {ticker: {col: val, ...}}
-    # Use 'records' orientation and then build the dict keyed by Ticker
-    new_data_list = screener_data_df_cleaned.to_dict(orient='records')
-    new_data_dict = {record['Ticker']: record for record in new_data_list if 'Ticker' in record}
-
-    # Update existing data with new data (overwrites tickers if they reappear)
-    processed_data.update(new_data_dict)
-    
-    # Add a timestamp for the last update
-    processed_data['_last_updated'] = datetime.now().isoformat()
-
-    # Clean the entire dictionary recursively before saving
-    processed_data_cleaned = clean_value_for_json(processed_data)
-
-    # Save cleaned data back to JSON
-    try:
-        with open(analysis_file_path, 'w') as f:
-            json.dump(processed_data_cleaned, f, indent=4) # Use indent for readability
-        # Log count based on the original processed_data before cleaning added _last_updated potentially
-        log_count = len(processed_data) - 1 if '_last_updated' in processed_data else len(processed_data)
-        logging.info(f"Saved/Updated {len(new_data_dict)} stocks. Total records in {analysis_file_path}: {log_count}") 
-    except Exception as e:
-        logging.error(f"Error writing to analysis JSON file {analysis_file_path}: {e}")
-
 
 def clean_value_for_json(value):
     """Recursively cleans dict/list values for JSON compatibility (NaN, Inf -> None)."""
@@ -1075,22 +992,6 @@ def process_market_data(market_name, screener_df, llm_client, today_dir, dedup_s
             item['current_change'] = v['last_change']
 
     return market_notifications
-
-
-def _load_processed_tickers(analysis_file_path):
-    """Loads processed tickers from a market-specific analysis JSON file."""
-    processed_data = {}
-    if os.path.exists(analysis_file_path):
-        try:
-            with open(analysis_file_path, 'r') as f:
-                processed_data = json.load(f)
-            logging.info(f"Loaded {len(processed_data)} previously processed tickers from {analysis_file_path}")
-        except (json.JSONDecodeError, Exception) as e:
-            logging.error(f"Error reading {analysis_file_path}: {e}. Starting fresh.")
-            processed_data = {}
-    else:
-        logging.info(f"Analysis file {analysis_file_path} not found. Starting fresh.")
-    return set(processed_data.keys()) if isinstance(processed_data, dict) else set()
 
 
 def _save_analysis(analysis_file_path, screener_data_df):
