@@ -281,6 +281,7 @@ def prepare_notification_content(new_stocks_df, llm_client: LLMClient, news_data
         ticker = row.get('Ticker', 'N/A')
         stock_data['ticker'] = ticker
         stock_data['company_name'] = row.get('CompanyName', 'N/A')
+        stock_data['company_name_zh'] = row.get('CompanyNameZh', '') or ''
 
         # Generate TradingView chart URL and download screenshot
         chart_image_path = None # Initialize path as None

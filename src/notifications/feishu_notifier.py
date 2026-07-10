@@ -151,18 +151,25 @@ def format_stock_card(stock_data):
     """
     ticker = stock_data.get('ticker', 'N/A')
     company = stock_data.get('company_name', 'N/A')
+    company_zh = stock_data.get('company_name_zh', '') or ''
     market = stock_data.get('market', 'us')
+
+    # 美股：在英文名旁附中文名（若已翻译）；A股公司名本就是中文
+    if market == 'us' and company_zh:
+        name_display = f"{ticker} {company_zh} ({company})"
+    else:
+        name_display = f"{ticker} {company}"
 
     # 市场标签 + 重复/升级醒目标签
     market_tag = "🇨🇳 A股" if market == 'china' else "🇺🇸 美股"
     repeat_count = stock_data.get('repeat_count')
     upgraded = stock_data.get('intensity_upgraded', False)
     if upgraded:
-        title = f"⚡ 强度升级 · 今日第{repeat_count}次 | {market_tag} {ticker} {company}"
+        title = f"⚡ 强度升级 · 今日第{repeat_count}次 | {market_tag} {name_display}"
     elif repeat_count and repeat_count > 1:
-        title = f"🔥 持续异动 · 今日第{repeat_count}次 | {market_tag} {ticker} {company}"
+        title = f"🔥 持续异动 · 今日第{repeat_count}次 | {market_tag} {name_display}"
     else:
-        title = f"{market_tag} {ticker} {company}"
+        title = f"{market_tag} {name_display}"
 
     # 颜色
     change_str = stock_data.get('core_data_str', '')

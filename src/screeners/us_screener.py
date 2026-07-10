@@ -136,6 +136,7 @@ def _process_yfinance(data):
             rows.append({
                 "Ticker": tkr,
                 "CompanyName": _get_company_name(tkr, close),
+                "CompanyNameZh": _get_company_name_zh(tkr),
                 "Price": round(close, 2),
                 "ChangePercent": change_pct,
                 "Volume": volume,
@@ -211,6 +212,7 @@ def _fetch_stooq():
         rows.append({
             "Ticker": tkr,
             "CompanyName": _get_company_name(tkr, close),
+            "CompanyNameZh": _get_company_name_zh(tkr),
             "Price": round(close, 2),
             "ChangePercent": chg,
             "Volume": int(vol),
@@ -312,6 +314,76 @@ def _get_company_name(ticker, price=None):
     return NAMES.get(ticker, ticker)
 
 
+# 常见美股 / 中概股中文名映射（CI 离线可用，无需 API）。
+# 仅覆盖知名度高的标的；未收录的回退英文名（由调用方处理）。
+NAMES_ZH = {
+    # 科技巨头
+    "AAPL": "苹果", "MSFT": "微软", "NVDA": "英伟达", "GOOGL": "谷歌", "GOOG": "谷歌",
+    "AMZN": "亚马逊", "META": "元(脸书)", "CRM": "赛富时", "ADBE": "奥多比",
+    "INTC": "英特尔", "AMD": "超威半导体", "QCOM": "高通", "TXN": "德州仪器",
+    "AVGO": "博通", "ORCL": "甲骨文", "IBM": "IBM", "CSCO": "思科", "MU": "美光",
+    "NOW": "ServiceNow", "SNAP": "Snap", "PINS": "Pinterest", "RBLX": "Roblox",
+    "NET": "Cloudflare", "DDOG": "Datadog", "CRWD": "CrowdStrike", "PANW": "Palo Alto网络",
+    "ZM": "Zoom", "TEAM": "Atlassian", "WDAY": "Workday", "ADSK": "欧特克",
+    "SNPS": "新思科技", "CDNS": "楷登电子", "MRVL": "迈威尔", "MCHP": "微芯科技",
+    "ADI": "亚德诺", "PYPL": "贝宝", "SQ": "Block", "COIN": "Coinbase",
+    "MELI": "MercadoLibre", "NFLX": "奈飞", "TMUS": "T-Mobile", "UBER": "优步",
+    "ABNB": "爱彼迎", "DASH": "DoorDash",
+    # 中概股
+    "BABA": "阿里巴巴", "JD": "京东", "BIDU": "百度", "PDD": "拼多多",
+    "NTES": "网易", "TME": "腾讯音乐", "FUT": "富途控股", "TIGR": "老虎证券",
+    "YUMC": "百胜中国", "EDU": "新东方", "TAL": "好未来", "BILI": "哔哩哔哩",
+    "ATHM": "汽车之家", "BZ": "BOSS直聘", "BEKE": "贝壳", "DQ": "大全新能源",
+    "JKS": "晶科能源", "NIO": "蔚来", "XPEV": "小鹏汽车", "LI": "理想汽车",
+    "BIDU": "百度", "TCOM": "携程", "ZTO": "中通快递", "GDS": "万国数据",
+    # 汽车
+    "TSLA": "特斯拉", "F": "福特", "GM": "通用汽车", "RIVN": "Rivian", "LCID": "Lucid",
+    # 金融
+    "JPM": "摩根大通", "BAC": "美国银行", "WFC": "富国银行", "GS": "高盛",
+    "MS": "摩根士丹利", "C": "花旗", "V": "维萨", "MA": "万事达", "BLK": "贝莱德",
+    "SCHW": "嘉信理财", "AXP": "美国运通", "COF": "Capital One", "USB": "美国合众银行",
+    "PNC": "浦瑞兴",
+    # 消费
+    "KO": "可口可乐", "PEP": "百事", "MCD": "麦当劳", "SBUX": "星巴克",
+    "NKE": "耐克", "DIS": "迪士尼", "WMT": "沃尔玛", "COST": "开市客",
+    "TGT": "塔吉特", "YUM": "百胜餐饮", "CMG": "Chipotle", "DPZ": "达美乐",
+    "DRI": "达登餐饮", "MDLZ": "亿滋", "KHC": "卡夫亨氏", "GIS": "通用磨坊",
+    "CL": "高露洁", "PG": "宝洁", "MNST": "怪兽饮料", "MO": "奥驰亚",
+    "BJ": "BJ批发", "DLTR": "Dollar Tree", "DG": "Dollar General",
+    # 医疗
+    "JNJ": "强生", "UNH": "联合健康", "MRK": "默沙东", "ABBV": "艾伯维",
+    "LLY": "礼来", "ABT": "雅培", "TMO": "赛默飞", "BMY": "百时美施贵宝",
+    "GILD": "吉利德", "AMGN": "安进", "MDT": "美敦力", "ISRG": "直觉外科",
+    "VRTX": "福泰制药", "REGN": "再生元", "MRNA": "Moderna", "ZTS": "硕腾",
+    "BIIB": "百健", "ILMN": "因美纳", "PFE": "辉瑞",
+    # 能源 / 工业
+    "CVX": "雪佛龙", "COP": "康菲石油", "XOM": "埃克森美孚", "GE": "通用电气",
+    "BA": "波音", "CAT": "卡特彼勒", "HON": "霍尼韦尔", "MMM": "3M",
+    "UPS": "联合包裹", "FDX": "联邦快递", "LMT": "洛克希德·马丁", "RTX": "雷神",
+    "GD": "通用动力", "DE": "迪尔", "UNP": "联合太平洋", "NSC": "诺福克南方",
+    "BA": "波音",
+    # 通信
+    "VZ": "威瑞森", "T": "AT&T",
+    # ETF
+    "SPY": "标普500ETF", "QQQ": "纳斯达克100ETF", "IWM": "罗素2000ETF",
+    "DIA": "道琼斯ETF", "VOO": "标普500ETF(先锋)", "VTI": "全美股ETF",
+    "GLD": "黄金ETF", "SLV": "白银ETF", "TLT": "20年国债ETF", "IEF": "7-10年国债ETF",
+    "AGG": "综合债ETF", "BND": "总债ETF", "HYG": "高收益债ETF", "LQD": "投资级债ETF",
+    "ARKK": "方舟创新ETF", "ARKW": "方舟互联网ETF", "ARKG": "方舟基因ETF",
+    "SOXX": "半导体ETF", "SMH": "半导体ETF", "IBB": "生物科技ETF",
+    "KRE": "区域银行ETF", "KBE": "银行ETF", "XLF": "金融ETF", "XLE": "能源ETF",
+    "XLK": "科技ETF", "XLV": "医疗ETF", "XLI": "工业ETF", "XLY": "可选消费ETF",
+    "XLP": "必需消费ETF", "XLU": "公用事业ETF", "XLB": "材料ETF", "XLRE": "房地产ETF",
+    "TQQQ": "纳指3倍做多", "SQQQ": "纳指3倍做空", "VT": "全球股票ETF",
+    "DBC": "大宗商品ETF", "USO": "原油ETF", "SLV": "白银ETF",
+}
+
+
+def _get_company_name_zh(ticker):
+    """返回股票中文名（仅覆盖常见美股/中概股）；未收录返回空串，由调用方回退英文名。"""
+    return NAMES_ZH.get(ticker, '')
+
+
 def apply_filters(df, filters_config):
     """
     Apply filter thresholds to US data.
@@ -371,6 +443,7 @@ def normalize_to_standard(df):
     std = pd.DataFrame()
     std['Ticker'] = df['Ticker'].astype(str)
     std['CompanyName'] = df.get('CompanyName', df['Ticker'])
+    std['CompanyNameZh'] = df.get('CompanyNameZh', '')
     std['Price'] = pd.to_numeric(df.get('Price', 0), errors='coerce')
     std['ChangePercent'] = pd.to_numeric(df.get('ChangePercent', 0), errors='coerce')
 
