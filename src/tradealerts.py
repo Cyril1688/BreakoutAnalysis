@@ -736,7 +736,7 @@ def save_discord_notified_stocks(today_dir, structured_data):
     
     try:
         with open(discord_file_path, 'w') as f:
-            json.dump(all_data, f, indent=4)
+            json.dump(all_data, f, indent=4, default=str)
         logging.info(f"Saved {len(new_stocks)} new stocks to discord-notified-stocks.json. Total: {len(all_data)}")
     except Exception as e:
         logging.error(f"Error saving discord notified stocks file: {e}")
@@ -778,7 +778,7 @@ def save_email_notified_stocks(today_dir, stocks_data):
     
     try:
         with open(email_file_path, 'w') as f:
-            json.dump(stocks_data, f, indent=4)
+            json.dump(stocks_data, f, indent=4, default=str)
         logging.info(f"Saved {len(stocks_data)} stocks to email-notified-stocks.json")
     except Exception as e:
         logging.error(f"Error saving email notified stocks file: {e}")
